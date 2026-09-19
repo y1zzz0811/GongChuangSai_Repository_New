@@ -1,0 +1,79 @@
+# ===================== 通用 =====================
+.DS_Store
+Thumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+*.log
+*.tmp
+*.bak
+*.old
+*.swp
+*~
+
+# ===================== Keil MDK-ARM (STM32) =====================
+# 编译中间产物与输出
+*.o
+*.d
+*.crf
+*.lst
+*.axf
+*.bin
+*.hex
+*.map
+*.lnp
+*.dep
+*.htm
+*.iex
+*.sct
+*.scvd
+*.dbgconf
+Listings/
+Objects/
+DebugConfig/
+RTE/
+
+# 用户级配置（个人窗口布局、调试选项，无需共享）
+*.uvguix
+*.uvguix.*
+*.uvoptx
+*.uvmpw
+
+# J-Link 调试残留
+JLinkLog.txt
+JLinkSettings.ini
+JLink*
+*.JLink
+
+# ===================== STM32CubeMX =====================
+# 保留 .ioc / .mxproject（重新生成代码需要），仅忽略备份
+*.ioc.bak
+*.mxproject.bak
+
+# ===================== Python（视觉 / 算法脚本） =====================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+env/
+ENV/
+.pytest_cache/
+.mypy_cache/
+
+# ===================== IDE / 编辑器 =====================
+.idea/
+.vscode/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+
+# ===================== 压缩包 / 临时大文件 =====================
+# 请勿将大型二进制（如 .zip 源码包、装配体导出）直接提交到代码目录
+*.7z
+*.rar

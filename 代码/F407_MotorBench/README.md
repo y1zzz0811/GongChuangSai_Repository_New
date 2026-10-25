@@ -1,4 +1,4 @@
-# F407 MotorBench A1
+# F407 MotorBench A3
 
 STM32F407VET6 电机与底盘调试工程。USART1 为电脑终端，USART2 为电机总线，USART6 尚未启用。上电不自动运动。
 
@@ -11,3 +11,7 @@ A方案为非阻塞位置控制状态机：四台预检查、配置验证、同�
 USART1/2使用单字节中断接收与环形缓冲；中断入口及NVIC配置保存在CubeMX用户区。更新时重新加载全部修改文件；不要仅复制motor_bench.c而遗漏中断配置。
 
 `Tests/host/test_motorbench.c` 使用模拟HAL和电机协议测试实际的motor_bench.c；它不打开串口，也不会控制硬件。编译和主机测试通过不能代替实车验收。仓库不包含本机备份和编译缓存。
+
+A2 将平移和原地转向的速度分开，默认转速分别由 `CHASSIS_DEFAULT_LINEAR_RPM` 和 `CHASSIS_DEFAULT_TURN_RPM` 配置；旧全局速度命令仍兼容。每段动作使用固定的段内转速，运行中不可调速。
+
+A3 按实际轮位修正横移及转向：左前=地址2、右前=地址1、左后=地址3、右后=地址4。轮位地址由 `chassis_config.h` 的四个 `CHASSIS_*_ADDR` 宏指定，向前方向数组仍按地址1～4排列。

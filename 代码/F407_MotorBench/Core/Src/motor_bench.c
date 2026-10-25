@@ -21,7 +21,7 @@ typedef enum { FORWARD,BACKWARD,LEFT,RIGHT,TURN_LEFT,TURN_RIGHT } Action;
 typedef struct {
   Phase phase; Action action;
   uint8_t square,step,count,index,arrived,stable,abort_fault,stop_failed,flags[4];
-  uint32_t distance,angle,pulses,deadline,next_at;
+  uint32_t distance,angle,pulses,rpm,deadline,next_at;
   int64_t baseline[4],position[4];
   char reason[80];
 } Route;
@@ -33,7 +33,7 @@ static volatile uint8_t urgent_stop,console_error,motor_error;
 static char line[LINE_CAP];
 static Exchange exchange;
 static Route route;
-static uint32_t bus_ready,length_mm,width_mm,speed_rpm,straight_scale,turn_scale;
+static uint32_t bus_ready,length_mm,width_mm,linear_rpm,turn_rpm,straight_scale,turn_scale;
 static const uint8_t forward_direction[4]=CHASSIS_FORWARD_DIRECTIONS;
 static int Due(uint32_t now,uint32_t target) { return (int32_t)(now-target)>=0; }
 static void Print(const char *s) { (void)HAL_UART_Transmit(console,(uint8_t *)s,(uint16_t)strlen(s),200U); }
@@ -169,23 +169,26 @@ static uint32_t TurnPulses(uint32_t deg) {
   return (uint32_t)(((uint64_t)CHASSIS_PULSES_PER_REV*(length_mm+width_mm)*deg*turn_scale+den/2U)/den);
 }
 static uint8_t Direction(uint8_t i) {
-  uint8_t rev=0U;
+  uint8_t addr=(uint8_t)(i+1U),rev=0U;
   switch (route.action) {
     case FORWARD: break; case BACKWARD: rev=1U; break;
-    case LEFT: rev=i==0U || i==3U; break; case RIGHT: rev=i==1U || i==2U; break;
-    case TURN_RIGHT: rev=i==1U || i==3U; break; case TURN_LEFT: rev=i==0U || i==2U; break;
+    case LEFT: rev=addr==CHASSIS_FRONT_LEFT_ADDR || addr==CHASSIS_REAR_RIGHT_ADDR; break;
+    case RIGHT: rev=addr==CHASSIS_FRONT_RIGHT_ADDR || addr==CHASSIS_REAR_LEFT_ADDR; break;
+    case TURN_RIGHT: rev=addr==CHASSIS_FRONT_RIGHT_ADDR || addr==CHASSIS_REAR_RIGHT_ADDR; break;
+    case TURN_LEFT: rev=addr==CHASSIS_FRONT_LEFT_ADDR || addr==CHASSIS_REAR_LEFT_ADDR; break;
   }
   return forward_direction[i]^rev;
 }
 static void BeginStep(void) {
   uint64_t nominal;
   if (route.square) route.action=(route.step&1U)?TURN_RIGHT:FORWARD;
+  route.rpm=route.action>=TURN_LEFT?turn_rpm:linear_rpm;
   route.pulses=route.action>=TURN_LEFT?TurnPulses(route.angle):DistancePulses(route.distance);
-  nominal=(uint64_t)route.pulses*60000U/(speed_rpm*CHASSIS_PULSES_PER_REV);
+  nominal=(uint64_t)route.pulses*60000U/(route.rpm*CHASSIS_PULSES_PER_REV);
   route.deadline=HAL_GetTick()+(uint32_t)(nominal*3U+10000U);
   route.phase=BASELINE; route.index=route.arrived=route.stable=0U;
   Log("STEP %u/%u: %s, pulses=%lu, rpm=%lu\r\n",(unsigned)(route.step+1U),
-      (unsigned)route.count,ActionName(route.action),(unsigned long)route.pulses,(unsigned long)speed_rpm);
+      (unsigned)route.count,ActionName(route.action),(unsigned long)route.pulses,(unsigned long)route.rpm);
 }
 static uint8_t DisplacementMatches(uint8_t i) {
   int64_t delta=route.position[i]-route.baseline[i];
@@ -260,7 +263,7 @@ static void RoutePoll(void) {
     case MOTOR_ENABLE: f[1]=0xF3U; f[2]=0xABU; f[3]=1U; f[4]=0U; f[5]=0x6BU; ExchangeStart(f,6U,4U,0U); break;
     case BASELINE: case WAIT_POSITION: f[1]=0x36U; ExchangeStart(f,3U,8U,0U); break;
     case LOAD:
-      f[1]=0xFDU; f[2]=Direction(route.index); f[3]=(uint8_t)(speed_rpm>>8); f[4]=(uint8_t)speed_rpm; f[5]=10U;
+      f[1]=0xFDU; f[2]=Direction(route.index); f[3]=(uint8_t)(route.rpm>>8); f[4]=(uint8_t)route.rpm; f[5]=10U;
       f[6]=(uint8_t)(route.pulses>>24); f[7]=(uint8_t)(route.pulses>>16); f[8]=(uint8_t)(route.pulses>>8); f[9]=(uint8_t)route.pulses;
       f[10]=2U; f[11]=1U; f[12]=0x6BU; ExchangeStart(f,13U,4U,0U); break;
     case TRIGGER:
@@ -280,9 +283,13 @@ static void ShowStatus(void) {
   unsigned step=route.count?(route.step<route.count?route.step+1U:route.count):0U;
   Log("state=%s step=%u/%u action=%s target=%lu pulses\r\n",PhaseName(route.phase),step,
       (unsigned)route.count,ActionName(route.action),(unsigned long)route.pulses);
-  Log("geometry L=%lu W=%lu mm; wheel=%umm/%u pulses; rpm=%lu; cal straight=%lu turn=%lu permille\r\n",
+  Log("geometry L=%lu W=%lu mm; wheel=%umm/%u pulses; linear-rpm=%lu turn-rpm=%lu; cal straight=%lu turn=%lu permille\r\n",
       (unsigned long)length_mm,(unsigned long)width_mm,(unsigned)CHASSIS_WHEEL_DIAMETER_MM,
-      (unsigned)CHASSIS_PULSES_PER_REV,(unsigned long)speed_rpm,(unsigned long)straight_scale,(unsigned long)turn_scale);
+      (unsigned)CHASSIS_PULSES_PER_REV,(unsigned long)linear_rpm,(unsigned long)turn_rpm,
+      (unsigned long)straight_scale,(unsigned long)turn_scale);
+  Log("wheel addresses FL=%u FR=%u RL=%u RR=%u\r\n",(unsigned)CHASSIS_FRONT_LEFT_ADDR,
+      (unsigned)CHASSIS_FRONT_RIGHT_ADDR,(unsigned)CHASSIS_REAR_LEFT_ADDR,(unsigned)CHASSIS_REAR_RIGHT_ADDR);
+  if (route.rpm) Log("last/current step rpm=%lu\r\n",(unsigned long)route.rpm);
   Log("last flags: M1=%02X M2=%02X M3=%02X M4=%02X; selected id=%u\r\n",
       route.flags[0],route.flags[1],route.flags[2],route.flags[3],address);
   if (route.reason[0]) Log("last stop/fault: %s\r\n",route.reason);
@@ -313,7 +320,7 @@ static void ProcessLine(void) {
   if (!strcmp(line,"status")) { ShowStatus(); return; }
   if (!strcmp(line,"help")) {
     Print("help | status | id N | readpos | stop | tx HH HH ...\r\n");
-    Print("geometry L_mm W_mm | speed 1..100 | cal straight|turn 100..5000\r\n");
+    Log("geometry L_mm W_mm | speed [linear|turn] 1..%u | cal straight|turn 100..5000\r\n",(unsigned)CHASSIS_MAX_RPM);
     Print("forward|backward|left|right 10..3000(mm) | turn left|right 1..360(deg)\r\n");
     Print("square 10..3000(mm) | start (=square 1000) | stopall | ! | clearfault\r\n");
     Print("Motion uses M1..M4 on USART2. Header defaults persist; CLI overrides are RAM-only.\r\n"); return;
@@ -333,7 +340,17 @@ static void ProcessLine(void) {
     else if (!extra && Number(a,10U,3000U,&v) && Number(b,10U,3000U,&w)) {
       length_mm=v; width_mm=w; Log("Geometry set (RAM). 90deg initial pulses=%lu\r\n",(unsigned long)TurnPulses(90U));
     } else Print("Use: geometry L_mm W_mm (10..3000 each)\r\n");
-  } else if (!strcmp(cmd,"speed") && !b && Number(a,1U,CHASSIS_MAX_RPM,&v)) { speed_rpm=v; Log("RPM=%lu\r\n",(unsigned long)v); }
+  } else if (!strcmp(cmd,"speed")) {
+    if (!b && Number(a,1U,CHASSIS_MAX_RPM,&v)) {
+      linear_rpm=turn_rpm=v; /* Preserve the legacy global-speed command. */
+    } else if (!extra && a && b && Number(b,1U,CHASSIS_MAX_RPM,&v) &&
+               (!strcmp(a,"linear") || !strcmp(a,"turn"))) {
+      if (!strcmp(a,"linear")) linear_rpm=v; else turn_rpm=v;
+    } else {
+      Log("Use: speed [linear|turn] RPM (1..%u)\r\n",(unsigned)CHASSIS_MAX_RPM); return;
+    }
+    Log("Speed (RAM): linear=%lu RPM; turn=%lu RPM\r\n",(unsigned long)linear_rpm,(unsigned long)turn_rpm);
+  }
   else if (!strcmp(cmd,"cal") && a && !extra && Number(b,100U,5000U,&v)) {
     if (!strcmp(a,"straight")) straight_scale=v; else if (!strcmp(a,"turn")) turn_scale=v;
     else { Print("Use: cal straight|turn 100..5000 (1000=1.0)\r\n"); return; } Print("Calibration set (RAM only).\r\n");
@@ -353,9 +370,9 @@ void MotorBench_Init(UART_HandleTypeDef *c,UART_HandleTypeDef *m) {
   console=c; motor=m; memset(&console_rx,0,sizeof(console_rx)); memset(&motor_rx,0,sizeof(motor_rx));
   memset(&exchange,0,sizeof(exchange)); memset(&route,0,sizeof(route));
   address=1U; line_length=discard_line=urgent_stop=console_error=motor_error=0U;
-  length_mm=CHASSIS_LENGTH_MM; width_mm=CHASSIS_WIDTH_MM; speed_rpm=CHASSIS_DEFAULT_RPM;
+  length_mm=CHASSIS_LENGTH_MM; width_mm=CHASSIS_WIDTH_MM; linear_rpm=CHASSIS_DEFAULT_LINEAR_RPM; turn_rpm=CHASSIS_DEFAULT_TURN_RPM;
   straight_scale=CHASSIS_STRAIGHT_SCALE; turn_scale=CHASSIS_TURN_SCALE; bus_ready=HAL_GetTick();
-  Print("F407 MotorBench A1: USART1 console, USART2 M1..M4.\r\nNo automatic movement. Type help.\r\n> ");
+  Print("F407 MotorBench A3: USART1 console, USART2 M1..M4.\r\nNo automatic movement. Type help.\r\n> ");
   if (HAL_UART_Receive_IT(console,&console_byte,1U)!=HAL_OK || HAL_UART_Receive_IT(motor,&motor_byte,1U)!=HAL_OK) console_error=1U;
 }
 void MotorBench_Poll(void) {

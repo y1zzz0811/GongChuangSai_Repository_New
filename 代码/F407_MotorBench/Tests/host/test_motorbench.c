@@ -3,13 +3,13 @@
 #include <string.h>
 #include "../../Core/Src/motor_bench.c"
 
-typedef struct { int enabled,pending,moving; uint8_t direction; uint32_t pulses,end; int64_t pos; } Model;
+typedef struct { int enabled,pending,moving; uint8_t direction; uint32_t pulses,rpm,end; int64_t pos; } Model;
 static Model models[8];
 static UART_HandleTypeDef pc={1,NULL},driver={2,NULL};
 static uint32_t clock_ms;
 static int transmissions,triggers,broadcast_stops,drop_address,reject_load,bad_config,noise,stale,stall,wrong_distance;
 static uint8_t seen_dir[16][4];
-static uint32_t seen_pulses[16][4];
+static uint32_t seen_pulses[16][4],seen_rpm[16][4];
 static char console_log[100000];
 static size_t log_size;
 
@@ -45,6 +45,7 @@ HAL_StatusTypeDef HAL_UART_Transmit(UART_HandleTypeDef *u,uint8_t *f,uint16_t n,
       for (i=1;i<=4;++i) {
         assert(models[i].pending); seen_dir[triggers][i-1]=models[i].direction;
         seen_pulses[triggers][i-1]=models[i].pulses;
+        seen_rpm[triggers][i-1]=models[i].rpm;
         models[i].pending=0; models[i].moving=1; models[i].end=clock_ms+20;
       } ++triggers;
     }
@@ -63,6 +64,7 @@ HAL_StatusTypeDef HAL_UART_Transmit(UART_HandleTypeDef *u,uint8_t *f,uint16_t n,
       assert(n==13 && f[10]==2 && f[11]==1 && f[12]==0x6B);
       if (a==reject_load) { out[2]=0xE2; out[3]=0x6B; reply(out,4); break; }
       models[a].pending=1; models[a].direction=f[2];
+      models[a].rpm=((uint32_t)f[3]<<8)|f[4];
       models[a].pulses=((uint32_t)f[6]<<24)|((uint32_t)f[7]<<16)|((uint32_t)f[8]<<8)|f[9];
       out[2]=2; out[3]=0x6B; reply(out,4); break;
     case 0x3A:
@@ -83,11 +85,12 @@ static void tick(unsigned milliseconds) {
 }
 static void command(const char *s) { feed(&pc,(const uint8_t *)s,strlen(s)); tick(4); }
 static void reset(void) {
-  memset(models,0,sizeof(models)); memset(seen_dir,0,sizeof(seen_dir)); memset(seen_pulses,0,sizeof(seen_pulses));
+  memset(models,0,sizeof(models)); memset(seen_dir,0,sizeof(seen_dir)); memset(seen_pulses,0,sizeof(seen_pulses)); memset(seen_rpm,0,sizeof(seen_rpm));
   clock_ms=0; transmissions=triggers=broadcast_stops=drop_address=reject_load=bad_config=noise=stale=stall=wrong_distance=0;
   log_size=0; MotorBench_Init(&pc,&driver);
   assert(transmissions==0 && route.phase==IDLE && length_mm==190 && width_mm==215);
   assert(DistancePulses(1000)==12732 && TurnPulses(90)==4050);
+  assert(linear_rpm==CHASSIS_DEFAULT_LINEAR_RPM && turn_rpm==CHASSIS_DEFAULT_TURN_RPM);
 }
 static void until_terminal(unsigned limit) {
   while (limit-- && Busy()) tick(1);
@@ -98,12 +101,64 @@ int main(void) {
   int i,j,before;
   reset(); command("square 1000\n"); until_terminal(20000); assert(route.phase==IDLE && triggers==8);
   for (i=0;i<8;++i) for (j=0;j<4;++j) {
-    static const uint8_t f[]={1,0,0,1},r[]={1,1,0,0};
+    static const uint8_t f[]={1,0,0,1},r[]={0,0,0,0};
     assert(seen_dir[i][j]==((i&1)?r[j]:f[j])); assert(seen_pulses[i][j]==((i&1)?4050U:12732U));
   }
   puts("PASS full square: 8 synchronized moves, correct directions and pulse counts");
+  reset(); command("speed linear 30\n"); command("speed turn 10\n");
+  command("square 1000\n"); until_terminal(20000); assert(route.phase==IDLE && triggers==8);
+  for (i=0;i<8;++i) for (j=0;j<4;++j) assert(seen_rpm[i][j]==((i&1)?10U:30U));
+  puts("PASS square uses independent translation/turn RPM in all four transmitted motor frames");
+  reset(); command("speed 25\n"); assert(linear_rpm==25 && turn_rpm==25);
+  command("speed linear 20\n"); assert(linear_rpm==20 && turn_rpm==25);
+  command("speed turn 5\n"); assert(linear_rpm==20 && turn_rpm==5);
+  command("status\n"); assert(strstr(console_log,"linear-rpm=20 turn-rpm=5"));
+  command("speed linear 0\n"); command("speed turn 101\n"); command("speed linear\n");
+  command("speed other 5\n"); command("speed 0\n"); command("speed 101\n");
+  command("speed 10 extra\n"); command("speed linear 10 extra\n");
+  assert(linear_rpm==20 && turn_rpm==5 && transmissions==0);
+  command("backward 100\n"); while (route.phase!=BASELINE) tick(1);
+  assert(route.rpm==20 && route.deadline-clock_ms==((uint64_t)route.pulses*60000U/(20U*CHASSIS_PULSES_PER_REV))*3U+10000U);
+  command("speed linear 40\n"); command("speed turn 40\n"); command("speed 40\n");
+  assert(linear_rpm==20 && turn_rpm==5 && route.rpm==20);
+  until_terminal(5000); assert(route.phase==IDLE && triggers==1);
+  for (j=0;j<4;++j) assert(seen_rpm[0][j]==20);
+  command("turn left 90\n"); while (route.phase!=BASELINE) tick(1);
+  assert(route.rpm==5 && route.deadline-clock_ms==((uint64_t)route.pulses*60000U/(5U*CHASSIS_PULSES_PER_REV))*3U+10000U);
+  until_terminal(5000); assert(route.phase==IDLE && triggers==2);
+  for (j=0;j<4;++j) assert(seen_rpm[1][j]==5);
+  command("left 100\n"); until_terminal(5000);
+  command("right 100\n"); until_terminal(5000);
+  for (i=2;i<4;++i) for (j=0;j<4;++j) assert(seen_rpm[i][j]==20);
+  command("speed 1\n"); assert(linear_rpm==1 && turn_rpm==1);
+  command("speed 100\n"); assert(linear_rpm==100 && turn_rpm==100);
+  reset();
+  puts("PASS speed isolation, legacy command, limits, busy rejection, step deadlines and reboot defaults");
+  {
+    static const char *moves[]={"forward 100\n","backward 100\n","left 100\n","right 100\n","turn left 30\n","turn right 30\n"};
+    static const uint8_t expected[6][4]={{1,0,0,1},{0,1,1,0},{1,1,0,0},{0,0,1,1},{1,1,1,1},{0,0,0,0}};
+    /* Independent measured physical order FL=M2, FR=M1, RL=M3, RR=M4. */
+    static const unsigned physical_address_index[4]={1,0,2,3};
+    static const uint8_t measured_forward[4]={1,0,0,1};
+    static const int chassis_expected[6][3]={{4,0,0},{-4,0,0},{0,4,0},{0,-4,0},{0,0,4},{0,0,-4}};
+    for (i=0;i<6;++i) {
+      int wheel[4],vx,vy,omega;
+      reset(); command(moves[i]); until_terminal(5000);
+      assert(route.phase==IDLE && triggers==1 && !memcmp(seen_dir[0],expected[i],4));
+      for (j=0;j<4;++j) {
+        unsigned address_index=physical_address_index[j];
+        wheel[j]=seen_dir[0][address_index]==measured_forward[address_index]?1:-1;
+      }
+      vx=wheel[0]+wheel[1]+wheel[2]+wheel[3];
+      vy=-wheel[0]+wheel[1]+wheel[2]-wheel[3];
+      omega=-wheel[0]+wheel[1]-wheel[2]+wheel[3];
+      assert(vx==chassis_expected[i][0] && vy==chassis_expected[i][1] && omega==chassis_expected[i][2]);
+      command("status\n"); assert(strstr(console_log,"wheel addresses FL=2 FR=1 RL=3 RR=4"));
+    }
+  }
+  puts("PASS actual wheel mapping: six motion frames and independent chassis translation/yaw reconstruction");
   reset(); noise=1; command("turn left 90\n"); until_terminal(5000); assert(route.phase==IDLE && triggers==1);
-  { uint8_t wanted[]={0,0,1,1}; assert(!memcmp(seen_dir[0],wanted,4)); }
+  { uint8_t wanted[]={1,1,1,1}; assert(!memcmp(seen_dir[0],wanted,4)); }
   puts("PASS unrelated asynchronous packets do not replace acknowledgements");
   reset(); command("geometry 200 250\n"); assert(TurnPulses(90)==4500); command("cal turn 1100\n"); assert(TurnPulses(90)==4950);
   command("cal straight 1100\n"); assert(DistancePulses(1000)==14006); reset(); assert(TurnPulses(90)==4050);

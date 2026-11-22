@@ -222,8 +222,17 @@ class RecognitionCamera:
         self.error = None
         self.processed = 0
         self.uart_status = "串口已关闭"
+        self._vision_request_mode = None
         self.thread = threading.Thread(target=self.run, daemon=True)
         self.thread.start()
+
+    def set_vision_request_mode(self, mode):
+        with self.lock:
+            self._vision_request_mode = mode
+
+    def vision_request_mode(self):
+        with self.lock:
+            return self._vision_request_mode
 
     def run(self):
         port = None
@@ -251,6 +260,8 @@ class RecognitionCamera:
                         link.poll(started)
                     except (serial.SerialException, OSError) as error:
                         self.uart_status = f"视觉串口失败，仅识别：{error}"
+                        if link is not None:
+                            link._clear_pending()
                         transmitter = link = None
                         port.close()
                         port = None
@@ -276,17 +287,31 @@ class RecognitionCamera:
                         except (serial.SerialException, OSError) as error:
                             self.uart_status = f"串口发送失败，仅识别：{error}"
                             print(self.uart_status, flush=True)
+                            if link is not None:
+                                link._clear_pending()
                             transmitter = link = None
                             port.close()
                             port = None
                     info = "；".join(values)[:300] if values else "尚未识别到二维码"
                     details = f"{self.uart_status}；{info}"
                 else:
-                    display, circles = circle_result(frame, detector, ring_history, self.ring_metric,
-                                                     now=captured_at)
+                    request_mode = self.vision_request_mode()
+                    if request_mode in ("TOP", "RAW"):
+                        # RingLink owns TOP/RAW work during a tagged request.
+                        # Avoid running the unrelated numbered-ring detector
+                        # on the same frame while it is doing that work.
+                        display, circles = frame.copy(), {}
+                        text(display, f"{request_mode} REQUEST ACTIVE", (10, 28),
+                             (0, 255, 255), 0.55)
+                    else:
+                        display, circles = circle_result(frame, detector, ring_history, self.ring_metric,
+                                                         now=captured_at)
                     h, w = frame.shape[:2]
                     details = f"图像中心 ({(w-1)/2:g}, {(h-1)/2:g})；"
-                    details += "、".join(sorted(circles)) + " 号圆环已确认" if circles else "等待编号圆环确认"
+                    if request_mode in ("TOP", "RAW"):
+                        details += f"{request_mode} 请求处理中"
+                    else:
+                        details += "、".join(sorted(circles)) + " 号圆环已确认" if circles else "等待编号圆环确认"
                 elapsed = max(time.monotonic() - started, 0.001)
                 self.processed += 1
                 with self.lock:

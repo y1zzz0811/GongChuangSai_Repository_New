@@ -36,7 +36,7 @@ class EdgeRawTarget(RawTarget):
         super().__init__(metric, settings)
         self.vision = TopAdapter(metric, search_mm=30, surface='tray')
 
-    def observe(self, frame, stamp, target, tracker):
+    def observe(self, frame, stamp, target, tracker, moved_mm=(0.0, 0.0)):
         self.vision.vision.detect(frame)
         matched = []
         for item in self.vision.vision.axis_records:
@@ -59,22 +59,25 @@ class EdgeRawTarget(RawTarget):
             return None
         offset = matched[0]
         stopped = tracker.update(offset, stamp) == 'STOP OBSERVED'
-        if (stopped and np.linalg.norm(offset - self.pickup) <= self.window
-                and abs(offset[0]) <= 2 and abs(offset[1]) <= 5):
+        moved_mm = np.asarray(moved_mm, dtype=float)
+        if (stopped and np.isfinite(moved_mm).all()
+                and np.linalg.norm(offset + moved_mm - self.pickup) <= self.window):
             return offset
         return None
 
 
 def main(argv=None):
     parser = argparse.ArgumentParser(add_help=False)
-    parser.add_argument('--surface', choices=['ground', 'tray'], default='tray')
+    parser.add_argument('--surface', choices=['ground', 'tray'], default='ground',
+                        help='TOP target plane; RAW always uses the tray plane')
     settings, remaining = parser.parse_known_args(argv)
     # Dependency substitution is limited to this launcher's process. The
     # existing RingLink handles QR/ground/TOP/RAW frames and their deadlines.
     dual.StackVision = lambda *args, **kwargs: TopAdapter(*args, **kwargs, surface=settings.surface)
     dual.RawTarget = EdgeRawTarget
     if '--help' not in remaining and '-h' not in remaining:
-        print(f'Unified route2 UART: TOP surface={settings.surface}; normal VQ=ring; TOP=ring ID; RAW=color ID', flush=True)
+        print(f'Unified route2 UART: TOP surface={settings.surface}; RAW surface=tray; '
+              'normal VQ=ring; TOP=ring ID; RAW=color ID', flush=True)
         if '--raw-config' not in remaining:
             print('RAW NOT CONFIGURED: provide measured --raw-config; no fabricated RAW replies will be sent', flush=True)
         if '--no-uart' not in remaining:

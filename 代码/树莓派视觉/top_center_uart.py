@@ -8,7 +8,7 @@ import time
 import numpy as np
 import cv2
 from route2_vision import crc8, RawTarget
-from raw_pickup_vision import MotionObservation
+from raw_pickup_vision import MotionObservation, RawStopSession
 
 
 class RawGate:
@@ -66,9 +66,7 @@ class RawGate:
             return None, 'RAW ' + motion
         if np.linalg.norm(offset + self.displacement_mm - self.target.pickup) > self.target.window:
             return None, 'RAW WAIT: outside taught pickup window'
-        if abs(offset[0]) > 2 or abs(offset[1]) > 5:
-            return None, 'RAW WAIT: outside Fwd +/-2mm / Left +/-5mm'
-        return eligible[0], 'RAW stopped and aligned'
+        return eligible[0], 'RAW stopped inside pickup window'
 
 
 class StaticRawGate:
@@ -108,6 +106,7 @@ class TopCenterLink:
         self.last_report = None
         self.displacement_mm = np.zeros(2)
         self.tracker = MotionObservation()
+        self.raw_stop = RawStopSession()
 
     def report(self, message, force=False):
         self.state = message
@@ -148,7 +147,8 @@ class TopCenterLink:
                             self.raw.set_displacement(displacement)
                         self.pending = (int(request_match[1]), request_match[2].decode(), kind, now, self.sequence)
                         self.samples.clear()
-                        self.tracker = MotionObservation()
+                        self.tracker = self.raw_stop.begin(
+                            request_match[2].decode(), displacement, extended_valid, now, self.raw)
                         if self.mode_callback:
                             self.mode_callback(kind)
                         self.report(f'VQ RX accepted {kind} ID={int(request_match[1])} '
@@ -243,6 +243,9 @@ class TopCenterLink:
             raise ValueError('Coordinate packet exceeds controller line capacity')
         if self.port.write(packet) != len(packet):
             raise OSError('Incomplete coordinate serial write')
+        if is_raw and not getattr(self.raw, 'static_test', False):
+            self.raw_stop.remember(target, self.displacement_mm,
+                                   (forward / 1000, left / 1000), self.tracker)
         self.report('VR TX ' + packet.decode('ascii').strip(), force=True)
         self.pending = None
         self.samples.clear()

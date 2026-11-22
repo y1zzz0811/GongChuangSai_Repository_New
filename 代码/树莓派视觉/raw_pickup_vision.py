@@ -65,6 +65,62 @@ class MotionObservation:
         return f"{status} | {motion} | {window}"
 
 
+class RawStopSession:
+    """Carry only confirmed stop evidence across corrections, never old frames."""
+
+    # Allow odometry/rail correction error when checking the same physical
+    # stop location; the taught pickup window still applies independently.
+    MAX_STATION_SHIFT_MM = 10.0
+
+    def __init__(self):
+        self.confirmed = None
+
+    def begin(self, target, displacement, continuation, now, raw):
+        previous, self.confirmed = self.confirmed, None
+        tracker = MotionObservation()
+        if (not continuation or previous is None or raw is None
+                or getattr(raw, 'static_test', False)):
+            return tracker
+        old_target, motion_at, station = previous
+        if (target != old_target or not 0 <= now - motion_at
+                or raw.dwell - (now - motion_at) < raw.action + 0.35):
+            return tracker
+        return _RawResumeObservation(motion_at, station, displacement,
+                                     self.MAX_STATION_SHIFT_MM)
+
+    def remember(self, target, displacement, offset, tracker):
+        if tracker.last_motion is not None:
+            station = (tracker.station.copy() if getattr(tracker, 'inherited_motion_at', None) is not None
+                       else np.asarray(offset, dtype=float) + np.asarray(displacement, dtype=float))
+            self.confirmed = (target, tracker.last_motion, station)
+
+
+class _RawResumeObservation(MotionObservation):
+    def __init__(self, motion_at, station, displacement, max_shift):
+        super().__init__()
+        self.saw_motion = True
+        self.last_motion = motion_at
+        self.station = np.asarray(station, dtype=float)
+        self.displacement = np.asarray(displacement, dtype=float)
+        self.max_shift = max_shift
+        self.inherited_motion_at = motion_at
+
+    def update(self, offset, captured_at):
+        if self.inherited_motion_at is not None:
+            if (offset is None or not np.isfinite(offset).all()
+                    or np.linalg.norm(offset + self.displacement - self.station) > self.max_shift):
+                # Loss or a different physical position invalidates inherited
+                # evidence. Require a newly observed movement and stop.
+                super().update(None, captured_at)
+                self.inherited_motion_at = None
+                if offset is None or not np.isfinite(offset).all():
+                    return 'TARGET LOST'
+        state = super().update(offset, captured_at)
+        if self.last_motion != self.inherited_motion_at:
+            self.inherited_motion_at = None
+        return state
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     add_preview_arguments(parser)

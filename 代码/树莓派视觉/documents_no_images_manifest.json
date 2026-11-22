@@ -1,0 +1,427 @@
+{
+  "source": "/home/string/Documents",
+  "excluded_image_extensions": [
+    ".avif",
+    ".bmp",
+    ".dng",
+    ".gif",
+    ".heic",
+    ".heif",
+    ".ico",
+    ".jpeg",
+    ".jpg",
+    ".png",
+    ".raw",
+    ".svg",
+    ".tif",
+    ".tiff",
+    ".webp"
+  ],
+  "files": [
+    {
+      "path": "__pycache__/dual_camera_preview.cpython-313.pyc",
+      "size": 17026,
+      "sha256": "8ecc09f9d846c2bd55c3d14180f8da7513a64a8f17dcf0d74a038741f013e59a"
+    },
+    {
+      "path": "__pycache__/dual_camera_recognition.cpython-313.pyc",
+      "size": 38404,
+      "sha256": "2c7ca853bf12f5fc9485230fe6a98efb902f86023e03217af02814253bc0515a"
+    },
+    {
+      "path": "__pycache__/numbered_ring_detector.cpython-313.pyc",
+      "size": 18552,
+      "sha256": "6f69543a168263e138e3e8262d15b4cd2ad8b97f922c206454d2c284698cdcd7"
+    },
+    {
+      "path": "__pycache__/qr_camera1.cpython-313.pyc",
+      "size": 12165,
+      "sha256": "9b7163b9e0136088b8ebe18cdc376b15702ecbf6e361ae02dcad5c83e801eaa7"
+    },
+    {
+      "path": "__pycache__/raw_pickup_axis_vision.cpython-313.pyc",
+      "size": 37078,
+      "sha256": "4e7f3abe319219c0a599dbac152149fd7c3c6b5819495b8e3446d434f3efacda"
+    },
+    {
+      "path": "__pycache__/raw_pickup_circle_vision.cpython-313.pyc",
+      "size": 17495,
+      "sha256": "c9770d02806a07e3f1e2e3fdee1c896dc1d3622ff529fa94b80e280b63e0376e"
+    },
+    {
+      "path": "__pycache__/raw_pickup_vision.cpython-313.pyc",
+      "size": 7819,
+      "sha256": "807df1a6c0f4184439b6c6b3f149d78241f959c1c741c5fc88283c283a4c1333"
+    },
+    {
+      "path": "__pycache__/ring_metric.cpython-313.pyc",
+      "size": 11302,
+      "sha256": "2a0af7042ff7696279d9c39d5e68345cae0b16442748969451fd7563d496c2df"
+    },
+    {
+      "path": "__pycache__/route2_top_center.cpython-313.pyc",
+      "size": 7084,
+      "sha256": "e7b23fc998191e8e36496c44c91a060263eb96dd9d9d431dbbd43b4d7f694865"
+    },
+    {
+      "path": "__pycache__/route2_vision.cpython-313.pyc",
+      "size": 15669,
+      "sha256": "985602fc1a9d2b8f932567c4591254d5b0ec84558f6dbde37dd6cbf357447b3e"
+    },
+    {
+      "path": "__pycache__/stacking_vision.cpython-313.pyc",
+      "size": 28584,
+      "sha256": "8364143b5b267ecfa0a309428a40bf3bedf24cedfbefb850df5cf5d8d2d38696"
+    },
+    {
+      "path": "__pycache__/target_center_camera1.cpython-313.pyc",
+      "size": 7993,
+      "sha256": "40abd9c6c6eb2e03f45b130f03b4e1a8c2edc9e957df795cfc483daaf2982ed8"
+    },
+    {
+      "path": "__pycache__/target_center_detector.cpython-313.pyc",
+      "size": 15618,
+      "sha256": "a3a66aa51e9e4bda88ee5ceec649b021b35467086a8cbae91f479a5a9ee3eb44"
+    },
+    {
+      "path": "__pycache__/top_center_uart.cpython-313.pyc",
+      "size": 20201,
+      "sha256": "ab7d449478e063fad5df036d0665fe5cdd03815e8190cca31bf10f523ed8c7f3"
+    },
+    {
+      "path": "backups/raw-before-C6.35.JsVhfnBI/route2_vision.py",
+      "size": 9534,
+      "sha256": "d230d6543c55f4971e2ba86e7bc1565d7e74a38b8801951317e312f0bdf710fa"
+    },
+    {
+      "path": "backups/vision-before-20261121-125245/camera_preview.py",
+      "size": 1281,
+      "sha256": "aaa6fc5fd7245976bbe8d01f3ee23eb691031b34b46db9017f5ae5eb997b06cf"
+    },
+    {
+      "path": "backups/vision-before-20261121-125245/dual_camera_preview.py",
+      "size": 9775,
+      "sha256": "f80851d1cc5d3c8c0819824425544c685e41a0970148072076f11048e44816ed"
+    },
+    {
+      "path": "backups/vision-before-20261121-125245/dual_camera_recognition.py",
+      "size": 23303,
+      "sha256": "c90cb8389e2bf453e4e10d45926e2623e1c8fa96bcc3b6835e72810a46e82e77"
+    },
+    {
+      "path": "backups/vision-before-20261121-125245/numbered_ring_detector.py",
+      "size": 10201,
+      "sha256": "bec87769d3e0842f7ee2062c59bf81300c78cc51f02782e23507fea0d354f081"
+    },
+    {
+      "path": "backups/vision-before-20261121-125245/qr_camera1.py",
+      "size": 8163,
+      "sha256": "c1aba332489c14a63acfdb644850e87d98a5881e1e9a7fd926cef93c8f5fb863"
+    },
+    {
+      "path": "backups/vision-before-20261121-125245/raw_pickup_vision.py",
+      "size": 4958,
+      "sha256": "c503c1f6b250b38af2c7db382ce6ef9bf486a189b558c173a1b168c537dd8719"
+    },
+    {
+      "path": "backups/vision-before-20261121-125245/ring_metric.py",
+      "size": 5808,
+      "sha256": "bacd4ea4c8ce29dac8ba3362df90385032313bcff330817ac6edde3528346e43"
+    },
+    {
+      "path": "backups/vision-before-20261121-125245/ring_metric_Z184_image_center.json",
+      "size": 6236,
+      "sha256": "451b8465393fa3b15fa98418c11494491c78a7f29be30e842c0fe0a9d40cd08c"
+    },
+    {
+      "path": "backups/vision-before-20261121-125245/route2_vision.py",
+      "size": 9636,
+      "sha256": "065c4f2226c17dfaa8e3c45fe9c9815136abfd0012198bf289cfd34dee02500a"
+    },
+    {
+      "path": "backups/vision-before-20261121-125245/stacking_vision.py",
+      "size": 16060,
+      "sha256": "9e56f68ba17da847751aef3f5506a1396bda991864ac836cea00eb5e7d919475"
+    },
+    {
+      "path": "backups/vision-before-20261121-125245/target_center_camera1.py",
+      "size": 5007,
+      "sha256": "6bf1a203088b56871374afbfce3b728f7173b9c71b3ec1a0f7d222e57fb95143"
+    },
+    {
+      "path": "backups/vision-before-20261121-125245/target_center_detector.py",
+      "size": 8296,
+      "sha256": "223911f8b1ad8b4b791064b9b4586ada179952ad7fca2d1f6dfe4e42af894b2e"
+    },
+    {
+      "path": "backups/vision-before-20261121-125245/双摄像头使用说明.md",
+      "size": 3181,
+      "sha256": "63e34002ff827788827cf8f517f73fc194dc756ce88d8c33f2e894f5c2f27d2d"
+    },
+    {
+      "path": "backups/vision-before-20261121-125245/蓝色识别修复说明.md",
+      "size": 1800,
+      "sha256": "ef8584c93eee6e2017f44ace33b34a69d3a1d2fbd615ea4ccf7009e2a2826544"
+    },
+    {
+      "path": "camera2_intrinsics_800x600.json",
+      "size": 410,
+      "sha256": "326f11490516afbfe4f26a539abcfdf615290be1e12c87c9f88565ead89a8249"
+    },
+    {
+      "path": "camera2_ring_preview.py",
+      "size": 3457,
+      "sha256": "119186a09c8821500c404719a5d63e45fcf1019134a250f64cefb680836de8a2"
+    },
+    {
+      "path": "camera2_ring_preview.py.before-uart.bak",
+      "size": 2750,
+      "sha256": "63ea1a7b88d570025816523036ea5e6ae52b911982b0460f8bd2af1ea9bc48e2"
+    },
+    {
+      "path": "camera_preview.py",
+      "size": 1453,
+      "sha256": "d8200105689c7d40b85e9f8245a5532f93858e3905c556416053d8104fa3162f"
+    },
+    {
+      "path": "dual_camera_preview.py",
+      "size": 9775,
+      "sha256": "f80851d1cc5d3c8c0819824425544c685e41a0970148072076f11048e44816ed"
+    },
+    {
+      "path": "dual_camera_recognition.py",
+      "size": 25611,
+      "sha256": "0ae1a9afe0357114155a1337a40c6f267636d46434f6d2bdabe72a2870a5f245"
+    },
+    {
+      "path": "numbered_ring_detector.py",
+      "size": 10201,
+      "sha256": "bec87769d3e0842f7ee2062c59bf81300c78cc51f02782e23507fea0d354f081"
+    },
+    {
+      "path": "qr_camera1.py",
+      "size": 8163,
+      "sha256": "c1aba332489c14a63acfdb644850e87d98a5881e1e9a7fd926cef93c8f5fb863"
+    },
+    {
+      "path": "raw_pickup_axis_vision.py",
+      "size": 24063,
+      "sha256": "e12fd998aa9729f9f36a221bccc73671bf4b973663d11adc263fa0cb9c1bb558"
+    },
+    {
+      "path": "raw_pickup_axis_vision.py.before-clutter-rejection.bak",
+      "size": 15579,
+      "sha256": "755525cf974033a8cd94755a85cb2dbf03fba0937c54b99ea1d5cede329e4e25"
+    },
+    {
+      "path": "raw_pickup_axis_vision.py.before-edge-radius-consistency.bak",
+      "size": 23466,
+      "sha256": "481fe9d3d3d48ccc6fb6618e3588fae247a198f6e593d364aa1765302d2adde0"
+    },
+    {
+      "path": "raw_pickup_axis_vision.py.before-ground-fwd-scale.bak",
+      "size": 23004,
+      "sha256": "59f1a835e880b55b3c1d5e3de07a3f72f00b5ff4f705dbe14bdde465075f8e40"
+    },
+    {
+      "path": "raw_pickup_axis_vision.py.before-protocol-correction.bak",
+      "size": 15281,
+      "sha256": "575047c63eeee0b26d27fa67d9c415c72bc513409fe24a75f2a0b514baf0b06f"
+    },
+    {
+      "path": "raw_pickup_axis_vision.py.before-radius-margin.bak",
+      "size": 19939,
+      "sha256": "7d96bfe5bd61280aca557d020b753d144c2ec33f88fab1405ce4c21607bedf6c"
+    },
+    {
+      "path": "raw_pickup_axis_vision.py.before-raw-v2.bak",
+      "size": 17065,
+      "sha256": "00dd2a340540914042862d69d4bac00c306a11878ccafa76a07d6a505790285b"
+    },
+    {
+      "path": "raw_pickup_axis_vision.py.before-six-colors.bak",
+      "size": 14601,
+      "sha256": "305eff12e033882fb4b38bb8596ae6ca09152b0548006096ca6e247099c28a96"
+    },
+    {
+      "path": "raw_pickup_axis_vision.py.before-static-test.bak",
+      "size": 18951,
+      "sha256": "45b052b7f1f44c01ff9300dafdbdb24de6e1d9a6ec41401f90f85f1278dd6398"
+    },
+    {
+      "path": "raw_pickup_axis_vision.py.before-top-disk-refinement.bak",
+      "size": 20009,
+      "sha256": "7dddecd7ea5bc28a9ee71c666677b70381f61a4d776fbeadd0eb0ef99f22f831"
+    },
+    {
+      "path": "raw_pickup_axis_vision.py.before-top-only.bak",
+      "size": 12065,
+      "sha256": "11c5ed1c6693eb2a1e7b0c84d61da8a76710036e34271b01d8e43a037778273e"
+    },
+    {
+      "path": "raw_pickup_axis_vision.py.before-uart.bak",
+      "size": 11277,
+      "sha256": "9e52f4c311aef678770c34a7ee384b4ea4946128024c1b2f19075a7bdf797c7e"
+    },
+    {
+      "path": "raw_pickup_circle_vision.py",
+      "size": 10614,
+      "sha256": "131e31ece3fdc939953d0d72b23a169d104ef9b1997f266de0dccd8c912885c3"
+    },
+    {
+      "path": "raw_pickup_circle_vision.py.before-image-roi.bak",
+      "size": 6516,
+      "sha256": "38d59a4ce16c7d4a4052a252d5e33a9cfecf4c00f415e5a045bc8e5fc6bd012f"
+    },
+    {
+      "path": "raw_pickup_circle_vision.py.before-multi-circle.bak",
+      "size": 5475,
+      "sha256": "b139f36fc091145c388f6c3878723f2b43bcf16d273db2eac4ed2b351fab4912"
+    },
+    {
+      "path": "raw_pickup_circle_vision.py.before-size-fix.bak",
+      "size": 5476,
+      "sha256": "6cf9469fa5baff3984a73b5899bd578a8cec30b2b08608466b3507c2cb5cbefe"
+    },
+    {
+      "path": "raw_pickup_vision.py",
+      "size": 4965,
+      "sha256": "245d86af2cfc22c1ccc6d922a6b006f8f4ff3763ef2300686df681162f9db73d"
+    },
+    {
+      "path": "raw_pickup_vision.py.before-search40-20261121-145920.bak",
+      "size": 4966,
+      "sha256": "b529e05802ed76d91ba5fd6e5d8c019c600d2a80719ecc1c1f0cad690dda66b5"
+    },
+    {
+      "path": "ring_metric.py",
+      "size": 5760,
+      "sha256": "5ae463537c469d637678d6dfa68a025c871c31bdca86367817682cefc0505a9c"
+    },
+    {
+      "path": "ring_metric_Z184_image_center.json",
+      "size": 6188,
+      "sha256": "ed5646b21da6cf55eca79b4d71a847b6626f429b763cd855e8a944ef6a8bd8a0"
+    },
+    {
+      "path": "route2_top_center.py",
+      "size": 4219,
+      "sha256": "68cc9ed5521f437f5ea3a3d551e7dfad27897148a98ad99333cfc63ce89dd591"
+    },
+    {
+      "path": "route2_vision.py",
+      "size": 9652,
+      "sha256": "91a61976dbb3b19bcc9aeb4d5b14427c0281e759b2d46997809b308a8ffbb7d9"
+    },
+    {
+      "path": "route2_vision.py.before-ring-age-1s.bak",
+      "size": 9534,
+      "sha256": "d230d6543c55f4971e2ba86e7bc1565d7e74a38b8801951317e312f0bdf710fa"
+    },
+    {
+      "path": "stacking_vision.py",
+      "size": 16997,
+      "sha256": "2e5bc2d7a47711cda19d76c438067919b8b903c428ef04e50fc9fdd69cb856ba"
+    },
+    {
+      "path": "target_center_camera1.py",
+      "size": 5007,
+      "sha256": "6bf1a203088b56871374afbfce3b728f7173b9c71b3ec1a0f7d222e57fb95143"
+    },
+    {
+      "path": "target_center_detector.py",
+      "size": 8296,
+      "sha256": "223911f8b1ad8b4b791064b9b4586ada179952ad7fca2d1f6dfe4e42af894b2e"
+    },
+    {
+      "path": "target_validation/__pycache__/legacy_target_center.cpython-313.pyc",
+      "size": 14705,
+      "sha256": "217b9a0a162a793f6a922b9fc4f2ed351629803323fd2dabc7cfe2fe84763612"
+    },
+    {
+      "path": "target_validation/dual_camera_recognition_before_center.py",
+      "size": 18159,
+      "sha256": "07a2fb9335f9be17cbf23bf3876b4097641ba6747aeae74551f600b2bbb3ba21"
+    },
+    {
+      "path": "target_validation/legacy_target_center.py",
+      "size": 8480,
+      "sha256": "1148df1c702cd1a1233fcfb6b96b94351b8f4a362f6164580e1c2e27e3ffc690"
+    },
+    {
+      "path": "target_validation/sweep-target-colors.py",
+      "size": 634,
+      "sha256": "353a4327362f7650cbeb083e27f4ae9fcd8a1eec6bce9d622e507415f8eee2b5"
+    },
+    {
+      "path": "test_dual_camera_recognition.py",
+      "size": 3493,
+      "sha256": "c887205d4c704518571e3571fa0452b0788acfa338f8fdde995c0054f204c12e"
+    },
+    {
+      "path": "test_target_center_detector.py",
+      "size": 6135,
+      "sha256": "ddcd3dbbbe12147ea68cb046c2d56cdf3860377977335d2b360457dd66f986fb"
+    },
+    {
+      "path": "top_center_uart.py",
+      "size": 12303,
+      "sha256": "2adc600ade6866a050f752ecf94ceb713925c546f33c0ab16b93606a5af66beb"
+    },
+    {
+      "path": "top_center_uart.py.before-controller-feedback.bak",
+      "size": 11176,
+      "sha256": "75e7bbd831a0e5153fd61409516e3839e459bfa647393c143c8aae50633055d6"
+    },
+    {
+      "path": "top_center_uart.py.before-diagnostics.bak",
+      "size": 3676,
+      "sha256": "1d38264f276ee54f87492394f788ecda5ef90c13427bac1eac89fac2f420e01a"
+    },
+    {
+      "path": "top_center_uart.py.before-protocol-correction.bak",
+      "size": 3398,
+      "sha256": "c458e22f8157c5a27a6977d0e256d756f0fdf92e1955fe214c1a66201edc5df1"
+    },
+    {
+      "path": "top_center_uart.py.before-raw-displacement-request.bak",
+      "size": 12515,
+      "sha256": "9808bff57223eb02baf8c9239f3a1f9bfe588afa7bc8979b448c5bb48666126f"
+    },
+    {
+      "path": "top_center_uart.py.before-raw-v2.bak",
+      "size": 5075,
+      "sha256": "01275337f1a3d9659397b15c5b2b1de72cb571c42877a8d1216c25a39ccb0118"
+    },
+    {
+      "path": "top_center_uart.py.before-static-error-report.bak",
+      "size": 11269,
+      "sha256": "faf56bb6e4064cdc1f43401bc6352879a86e70ce09e72825950d86bebdc638ce"
+    },
+    {
+      "path": "top_center_uart.py.before-static-roi-report.bak",
+      "size": 11159,
+      "sha256": "cf9bbbccd295e2e79399cd739d7009344dcd56b7c87a35162e1efbb55192610b"
+    },
+    {
+      "path": "top_center_uart.py.before-static-test.bak",
+      "size": 9871,
+      "sha256": "c69f712ad50b16667a157d5bba6c716aa8657e99b9dfc81a06f50b5dd256b03c"
+    },
+    {
+      "path": "validate_target_samples.py",
+      "size": 1770,
+      "sha256": "6e462881de499cc3b4afd63077bbd791c7583e6afc1b1fc249cce4eb15c3031a"
+    },
+    {
+      "path": "双摄像头使用说明.md",
+      "size": 5258,
+      "sha256": "9d1473b19a963b091a546c307d50935f7c1be53a9266a05ebdd083072e81db02"
+    },
+    {
+      "path": "蓝色识别修复说明.md",
+      "size": 1800,
+      "sha256": "ef8584c93eee6e2017f44ace33b34a69d3a1d2fbd615ea4ccf7009e2a2826544"
+    }
+  ]
+}

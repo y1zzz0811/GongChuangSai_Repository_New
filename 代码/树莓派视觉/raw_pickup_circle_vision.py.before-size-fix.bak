@@ -1,0 +1,106 @@
+"""Independent colored-circle pickup preview. Original raw_pickup_vision is unchanged."""
+import argparse
+from pathlib import Path
+
+import cv2
+import numpy as np
+
+from ring_metric import RingMetric
+from stacking_vision import StackVision, PIXELS_PER_MM, DIRECTIONS, add_preview_arguments, run, validate_preview_arguments
+
+
+class CirclePickupVision(StackVision):
+    def detect(self, frame):
+        if tuple(frame.shape[:2][::-1]) != self.calibration.image_size:
+            return "SIZE MISMATCH", None
+        # Fit in the physical top plane: a tilted camera sees circles as ellipses.
+        rectified = cv2.remap(frame, *self.rectification_maps, cv2.INTER_LINEAR)
+        hsv = cv2.cvtColor(cv2.GaussianBlur(rectified, (5, 5), 0), cv2.COLOR_BGR2HSV)
+        masks = {
+            "RED": cv2.inRange(hsv, (0, 80, 45), (12, 255, 255)) | cv2.inRange(hsv, (168, 80, 45), (179, 255, 255)),
+            "YELLOW": cv2.inRange(hsv, (15, 65, 45), (40, 255, 255)),
+            "GREEN": cv2.inRange(hsv, (41, 65, 35), (90, 255, 255)),
+            "BLUE": cv2.inRange(hsv, (91, 70, 35), (135, 255, 255)),
+        }
+        kernel = np.ones((3, 3), np.uint8)
+        candidates = []
+        for color, mask in masks.items():
+            mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
+            mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel, iterations=2)
+            mask &= self.visible * 255
+            contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
+            for contour in contours:
+                area = cv2.contourArea(contour)
+                if area < np.pi * (self.radius * 0.60) ** 2 or len(contour) < 20:
+                    continue
+                perimeter = cv2.arcLength(contour, True)
+                if perimeter <= 0 or 4 * np.pi * area / perimeter ** 2 < 0.80:
+                    continue
+                (cx, cy), (width, height), _ = cv2.fitEllipse(contour)
+                radius = (width + height) / 4
+                if min(width, height) / max(width, height) < 0.72:
+                    continue
+                if not self.radius * 0.60 <= radius <= self.radius * 1.45:
+                    continue
+                center = np.array([cx, cy], dtype=float)
+                if np.any(np.abs(center - self.mid) > self.search):
+                    continue
+                # Reject silhouettes touching the image/map boundary.
+                border = center + (radius + 2) * DIRECTIONS
+                indices = np.rint(border).astype(int)
+                if (np.any(indices < 0) or np.any(indices >= self.visible.shape[0])
+                        or not np.all(self.visible[indices[:, 1], indices[:, 0]])):
+                    continue
+                radial = np.linalg.norm(contour[:, 0, :] - center, axis=1)
+                if np.quantile(np.abs(radial - radius), 0.90) / radius > 0.12:
+                    continue
+                quality = float(4 * np.pi * area / perimeter ** 2)
+                candidates.append((quality, area, color, center, radius))
+        if not candidates:
+            return "NO CIRCLE", None
+        candidates.sort(key=lambda item: item[0] * item[1], reverse=True)
+        quality, _, color, center, radius = candidates[0]
+        if len(candidates) > 1:
+            return "MULTIPLE CIRCLES - RECENTER", None
+        image_center = self.project(center.reshape(1, 2))[0]
+        rim = self.project(center + radius * DIRECTIONS)
+        offset = (self.mid - center[::-1]) / PIXELS_PER_MM
+        return f"{color} CIRCLE", (image_center, rim, offset, quality)
+
+    def annotate(self, frame, status, result):
+        image = super().annotate(frame, status, result)
+        if result is not None:
+            point = tuple(np.rint(result[0]).astype(int))
+            cv2.circle(image, point, 5, (0, 255, 0), -1, cv2.LINE_AA)
+            cv2.putText(image, "CENTER", (point[0] + 12, point[1] - 12),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 0, 0), 3, cv2.LINE_AA)
+            cv2.putText(image, "CENTER", (point[0] + 12, point[1] - 12),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 255, 0), 1, cv2.LINE_AA)
+        return image
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    add_preview_arguments(parser)
+    default_calibration = Path(__file__).resolve().with_name("ring_metric_Z184_image_center.json")
+    parser.set_defaults(search_mm=40, calibration=default_calibration)
+    next(action for action in parser._actions if action.dest == "calibration").required = False
+    parser.add_argument("--tray-height-mm", type=float, default=80)
+    parser.add_argument("--part-height-mm", type=float, default=60)
+    args = parser.parse_args()
+    validate_preview_arguments(parser, args, max_search_mm=40)
+    if not (0 < args.tray_height_mm <= 150 and 0 < args.part_height_mm <= 120):
+        parser.error("Invalid tray/part height")
+    try:
+        vision = CirclePickupVision(RingMetric.load(args.calibration), args.grid_mm,
+                                   args.tray_height_mm + args.part_height_mm,
+                                   args.diameter_mm, args.search_mm,
+                                   args.base_diameter_mm, args.tray_height_mm)
+        run(args, vision, title="Circle pickup - green: detected center, yellow: reference; Q: quit",
+            prefix="pickup_circle")
+    except (ValueError, OSError, cv2.error) as exc:
+        parser.exit(1, f"{exc}\n")
+
+
+if __name__ == "__main__":
+    main()

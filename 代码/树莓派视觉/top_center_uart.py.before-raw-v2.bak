@@ -1,0 +1,112 @@
+"""TOP-only VQ/VR link matching 路线2视觉串口协议.md.
+
+TOP target 1..3 is an echoed ring/target number, never a color ID.
+Ground-ring and RAW requests belong to the existing dual-camera service.
+"""
+import math
+import re
+import time
+from route2_vision import crc8
+
+
+class TopCenterLink:
+    def __init__(self, port, color_ids=None, clock=time.monotonic, search_mm=50):
+        self.port = port
+        self.clock = clock
+        self.search_mm = float(search_mm)
+        self.buffer = bytearray()
+        self.discard = False
+        self.pending = None
+        self.samples = []
+        self.sequence = 0
+        self.state = 'WAIT VQ (TOP)'
+        self.last_report = None
+
+    def report(self, message, force=False):
+        self.state = message
+        if not force and message == self.last_report:
+            return
+        self.last_report = message
+        line = time.strftime('%Y-%m-%d %H:%M:%S') + ' ' + message
+        print(line, flush=True)
+        try:
+            with open('/tmp/top_center_uart.log', 'a', encoding='utf-8') as log:
+                log.write(line + '\n')
+        except OSError:
+            pass
+    def observe(self, records, captured_at):
+        self.sequence = self.sequence % 0xffffffff + 1
+        now = self.clock()
+        for byte in self.port.read(min(self.port.in_waiting, 128)):
+            if byte == 10:
+                if not self.discard:
+                    match = re.fullmatch(rb'VQ,([1-9][0-9]{0,9}),([1-3]),TOP\r?', self.buffer)
+                    self.report('UART RX ' + repr(bytes(self.buffer)), force=True)
+                    if match and int(match[1]) <= 0xffffffff:
+                        self.report('VQ RX accepted TOP target=' + match[2].decode())
+                        self.pending = (int(match[1]), match[2].decode(), now, self.sequence)
+                        self.samples.clear()
+                    else:
+                        self.report('IGNORED: expected VQ,ID,1..3,TOP; RAW and bare ring requests not supported')
+                self.buffer.clear()
+                self.discard = False
+            elif not self.discard:
+                if len(self.buffer) < 32:
+                    self.buffer.append(byte)
+                else:
+                    self.buffer.clear()
+                    self.discard = True
+        if self.pending is None:
+            return
+        request, target, started, first_sequence = self.pending
+        if now - started >= 8:
+            self.report('TOP TIMEOUT: no valid response within 8s')
+            self.pending = None
+            self.samples.clear()
+            return
+        # Reject the request-time frame AND the next potentially buffered frame.
+        if self.sequence <= first_sequence + 1 or captured_at <= started:
+            self.report('WAIT: skipping pre-request/cached frame')
+            return
+        matches = []
+        for item in records:
+            if item.get('height_uncertain', True) or item.get('source') != 'TOP':
+                continue
+            offset = tuple(float(value) for value in item['offset'])
+            if all(math.isfinite(value) and abs(value) <= min(500, self.search_mm) for value in offset):
+                matches.append(item)
+        # TOP knows the reached ring position, not its color. Do not select
+        # a color or silently pick one of several physical materials.
+        if len(matches) != 1 or not 0 <= now - captured_at <= 1.25:
+            reason = f'WAIT: {len(matches)} eligible TOP targets (total {len(records)}), limit +/-{self.search_mm:g}mm'
+            if not 0 <= now - captured_at <= 1.25:
+                reason = f'WAIT: stale frame {(now-captured_at)*1000:.0f}ms exceeds 1250ms'
+            self.report(reason)
+            self.samples.clear()
+            return
+        item = matches[0]
+        offset = tuple(float(value) for value in item['offset'])
+        center = tuple(float(value) for value in item['center'])
+        if self.samples and math.dist(center, self.samples[-1][2]) > 12:
+            self.samples.clear()
+        self.samples.append((offset, captured_at, center))
+        self.samples = self.samples[-3:]
+        if len(self.samples) < 3:
+            self.report(f'WAIT: stable sample {len(self.samples)}/3')
+            return
+        axes = list(zip(*(sample[0] for sample in self.samples)))
+        if any(max(axis) - min(axis) > 2 for axis in axes):
+            self.report('WAIT: coordinate spread exceeds 2mm')
+            return
+        age = math.ceil((now - self.samples[0][1]) * 1000)
+        if age > 3000:
+            self.samples.pop(0)
+            return
+        forward, left = (round(sorted(axis)[1] * 1000) for axis in axes)
+        body = f'VR,{request},{target},{self.sequence},{age},{forward},{left},TOP'.encode('ascii')
+        packet = body + f',{crc8(body):02X}\n'.encode('ascii')
+        if self.port.write(packet) != len(packet):
+            raise OSError('Incomplete coordinate serial write')
+        self.report('VR TX ' + packet.decode('ascii').strip(), force=True)
+        self.pending = None
+        self.samples.clear()

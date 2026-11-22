@@ -1,0 +1,81 @@
+"""Existing VQ/VR protocol for fixed-height top-circle millimetre observations."""
+import math
+import re
+import time
+from route2_vision import crc8
+
+
+class TopCenterLink:
+    def __init__(self, port, color_ids, clock=time.monotonic):
+        self.port = port
+        self.color_ids = dict(color_ids)
+        self.clock = clock
+        self.buffer = bytearray()
+        self.discard = False
+        self.pending = None
+        self.samples = []
+        self.sequence = 0
+        self.last_error = None
+
+    def observe(self, records, captured_at):
+        self.sequence = self.sequence % 0xffffffff + 1
+        now = self.clock()
+        for byte in self.port.read(min(self.port.in_waiting, 128)):
+            if byte == 10:
+                if not self.discard:
+                    match = re.fullmatch(rb'VQ,([1-9][0-9]{0,9}),([1-6])(?:,(TOP))?\r?', self.buffer)
+                    if match and int(match[1]) <= 0xffffffff:
+                        self.pending = (int(match[1]), match[2].decode(), match[3], now, self.sequence)
+                        self.samples.clear()
+                self.buffer.clear()
+                self.discard = False
+            elif not self.discard:
+                if len(self.buffer) < 32:
+                    self.buffer.append(byte)
+                else:
+                    self.buffer.clear()
+                    self.discard = True
+        if self.pending is None:
+            return
+        request, target, kind, started, first_sequence = self.pending
+        if now - started >= 8:
+            self.pending = None
+            self.samples.clear()
+            return
+        # Do not reuse an observation captured before the controller request.
+        if self.sequence <= first_sequence or captured_at <= started:
+            return
+        matches = [item for item in records if self.color_ids.get(item['color']) == target
+                   and not item.get('height_uncertain', True)]
+        if len(matches) != 1 or not 0 <= now - captured_at <= 1.25:
+            self.samples.clear()
+            return
+        item = matches[0]
+        offset = tuple(float(value) for value in item['offset'])
+        if not all(math.isfinite(value) and abs(value) <= 500 for value in offset):
+            self.samples.clear()
+            return
+        center = tuple(float(value) for value in item['center'])
+        if self.samples and math.dist(center, self.samples[-1][2]) > 12:
+            self.samples.clear()
+        self.samples.append((offset, captured_at, center))
+        self.samples = self.samples[-3:]
+        if len(self.samples) < 3:
+            return
+        axes = list(zip(*(sample[0] for sample in self.samples)))
+        if any(max(axis) - min(axis) > 2 for axis in axes):
+            return
+        age = math.ceil((now - self.samples[0][1]) * 1000)
+        if age > 3000:
+            self.samples.pop(0)
+            return
+        forward, left = (round(sorted(axis)[1] * 1000) for axis in axes)
+        body = f'VR,{request},{target},{self.sequence},{age},{forward},{left}'.encode('ascii')
+        if kind:
+            body += b',TOP'
+        packet = body + f',{crc8(body):02X}\n'.encode('ascii')
+        if self.port.write(packet) != len(packet):
+            raise OSError('Incomplete coordinate serial write')
+        print('UART TX ' + packet.decode('ascii').strip(), flush=True)
+        self.pending = None
+        self.samples.clear()

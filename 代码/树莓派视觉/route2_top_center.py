@@ -1,0 +1,91 @@
+"""Route-2 unified QR/ring/TOP/RAW service using the new top-edge detector.
+
+Original programs are unchanged. One dual-camera worker owns the UART.
+RAW requires the measured --raw-config mandated by the controller protocol.
+"""
+import argparse
+from pathlib import Path
+import sys
+import cv2
+import numpy as np
+import dual_camera_recognition as dual
+from route2_vision import RawTarget
+from raw_pickup_axis_vision import FixedSurfaceTopVision
+
+
+class TopAdapter:
+    def __init__(self, metric, grid_mm=10, height_mm=60, diameter_mm=30,
+                 search_mm=50, base_diameter_mm=50, base_height_mm=0,
+                 min_top_score=5, surface='ground'):
+        self.search_mm = search_mm
+        self.vision = FixedSurfaceTopVision(metric, grid_mm, 80, 60, diameter_mm,
+                                           base_diameter_mm, surface=surface)
+
+    def detect(self, frame):
+        status, _ = self.vision.detect(frame)
+        eligible = [item for item in self.vision.axis_records
+                    if np.all(np.abs(item['offset']) <= self.search_mm)]
+        if len(eligible) != 1:
+            return f'TOP candidates={len(eligible)} within +/-{self.search_mm:g}mm', None
+        item = eligible[0]
+        return 'TOP EDGE', (item['center'], item['rim'], item['offset'], item['score'])
+
+
+class EdgeRawTarget(RawTarget):
+    def __init__(self, metric, settings):
+        super().__init__(metric, settings)
+        self.vision = TopAdapter(metric, search_mm=30, surface='tray')
+
+    def observe(self, frame, stamp, target, tracker):
+        self.vision.vision.detect(frame)
+        matched = []
+        for item in self.vision.vision.axis_records:
+            if np.any(np.abs(item['offset']) > 30):
+                continue
+            center, rim = item['center'], item['rim']
+            u, v = np.rint(center).astype(int)
+            radius = int(np.linalg.norm(rim - center, axis=1).min() / 3)
+            if not (radius >= 2 and radius <= u < frame.shape[1] - radius
+                    and radius <= v < frame.shape[0] - radius):
+                continue
+            patch = frame[v-radius:v+radius+1, u-radius:u+radius+1]
+            lab = np.median(cv2.cvtColor(patch, cv2.COLOR_BGR2LAB), axis=(0, 1))
+            colors = [key for key, bounds in self.colors.items()
+                      if np.all(bounds[0] <= lab) and np.all(lab <= bounds[1])]
+            if colors == [target]:
+                matched.append(item['offset'])
+        if len(matched) != 1:
+            tracker.update(None, stamp)
+            return None
+        offset = matched[0]
+        stopped = tracker.update(offset, stamp) == 'STOP OBSERVED'
+        if (stopped and np.linalg.norm(offset - self.pickup) <= self.window
+                and abs(offset[0]) <= 2 and abs(offset[1]) <= 5):
+            return offset
+        return None
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(add_help=False)
+    parser.add_argument('--surface', choices=['ground', 'tray'], default='tray')
+    settings, remaining = parser.parse_known_args(argv)
+    # Dependency substitution is limited to this launcher's process. The
+    # existing RingLink handles QR/ground/TOP/RAW frames and their deadlines.
+    dual.StackVision = lambda *args, **kwargs: TopAdapter(*args, **kwargs, surface=settings.surface)
+    dual.RawTarget = EdgeRawTarget
+    if '--help' not in remaining and '-h' not in remaining:
+        print(f'Unified route2 UART: TOP surface={settings.surface}; normal VQ=ring; TOP=ring ID; RAW=color ID', flush=True)
+        if '--raw-config' not in remaining:
+            print('RAW NOT CONFIGURED: provide measured --raw-config; no fabricated RAW replies will be sent', flush=True)
+        if '--no-uart' not in remaining:
+            if '--route2-vision' not in remaining and '--pickup-test' not in remaining:
+                remaining.append('--route2-vision')
+            if '--ring-metric' not in remaining:
+                remaining.extend(['--ring-metric', str(Path(__file__).resolve().with_name('ring_metric_Z184_image_center.json'))])
+            if '--vision-debug' not in remaining:
+                remaining.append('--vision-debug')
+    dual.main(remaining)
+
+
+if __name__ == '__main__':
+    main(sys.argv[1:])

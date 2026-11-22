@@ -1,0 +1,213 @@
+"""Material axis from calibrated top/base circular edges; no motor output."""
+import argparse
+import json
+from pathlib import Path
+import cv2
+import numpy as np
+from ring_metric import RingMetric
+from raw_pickup_circle_vision import CirclePickupVision
+from stacking_vision import DIRECTIONS, PIXELS_PER_MM, add_preview_arguments, run, validate_preview_arguments
+
+
+class AxisVision(CirclePickupVision):
+    def __init__(self, calibration, grid_mm, tray_height, part_height, diameter, base_diameter, roi=None):
+        super().__init__(calibration, grid_mm, tray_height + part_height, diameter,
+                         base_diameter_mm=base_diameter, base_height_mm=tray_height, roi=roi)
+        self.base_plane = CirclePickupVision(calibration, grid_mm, tray_height, base_diameter,
+                                            base_diameter_mm=base_diameter, base_height_mm=0, roi=roi)
+
+    def plane_edges(self, frame, plane, source):
+        rectified = cv2.remap(frame, *plane.rectification_maps, cv2.INTER_LINEAR)
+        lab = cv2.GaussianBlur(cv2.cvtColor(rectified, cv2.COLOR_BGR2LAB), (5, 5), 1.0)
+        hsv = cv2.cvtColor(rectified, cv2.COLOR_BGR2HSV)
+        seeds = []
+        # Independent geometric proposals from brightness and chromatic edges.
+        for channel in cv2.split(lab):
+            circles = cv2.HoughCircles(channel, cv2.HOUGH_GRADIENT, dp=1.5,
+                                      minDist=plane.radius * 0.65, param1=60, param2=22,
+                                      minRadius=round(plane.radius * 0.80),
+                                      maxRadius=round(plane.radius * 1.20))
+            if circles is not None:
+                seeds.extend(circles[0])
+        if not seeds:
+            return []
+        lab_float = lab.astype(np.float32)
+        candidates = []
+        for seed in seeds:
+            delta = np.arange(-3, 4, 1.5, dtype=np.float32)
+            dx, dy, dr = np.meshgrid(delta, delta, np.arange(-2, 3, dtype=np.float32))
+            local = np.asarray(seed) + np.column_stack((dx.ravel(), dy.ravel(), dr.ravel()))
+            local = local[(local[:, 2] >= plane.radius * 0.80) & (local[:, 2] <= plane.radius * 1.20)]
+            if not len(local):
+                continue
+            scores = plane.score(lab_float, local, base=(source == 'BASE'))
+            best = int(scores.argmax())
+            if scores[best] < 1.2:
+                continue
+            cx, cy, radius = local[best]
+            center = np.array([cx, cy])
+            # Color only confirms a material surface and labels it. It does
+            # not supply the centroid or the fitted radius.
+            interior = center + 0.45 * radius * DIRECTIONS
+            samples = cv2.remap(hsv, interior[:, 0].astype(np.float32).reshape(1, -1),
+                               interior[:, 1].astype(np.float32).reshape(1, -1), cv2.INTER_NEAREST)[0]
+            saturated = (samples[:, 1] >= 45) & (samples[:, 2] >= 60)
+            if saturated.mean() < 0.65:
+                continue
+            hue = float(np.median(samples[saturated, 0]))
+            if 135 < hue < 168:
+                continue
+            color = 'RED' if hue < 13 or hue >= 168 else 'YELLOW' if hue < 41 else 'GREEN' if hue < 91 else 'BLUE'
+            world = plane.origin + (plane.map_center - center)[::-1] / PIXELS_PER_MM
+            offset = world - self.origin
+            top_center = self.map_center - offset[::-1] * PIXELS_PER_MM
+            axis_pixel = self.project(top_center.reshape(1, 2))[0]
+            x, y, w, h = self.roi
+            if not (x <= axis_pixel[0] < x + w and y <= axis_pixel[1] < y + h):
+                continue
+            rim = plane.project(center + radius * DIRECTIONS)
+            scores[best] *= np.exp(-((radius / plane.radius - 1) / 0.10) ** 2)
+            item = {'color': color, 'source': source, 'offset': offset,
+                    'center': axis_pixel, 'rim': rim, 'score': float(scores[best])}
+            if all(np.linalg.norm(offset - old['offset']) > 8 for old in candidates):
+                candidates.append(item)
+            else:
+                index = min(range(len(candidates)), key=lambda i: np.linalg.norm(offset - candidates[i]['offset']))
+                if item['score'] > candidates[index]['score']:
+                    candidates[index] = item
+        return candidates
+
+    def detect(self, frame):
+        self.detected_circles = []
+        self.axis_records = []
+        if tuple(frame.shape[:2][::-1]) != self.calibration.image_size:
+            return 'SIZE MISMATCH', None
+        tops = self.plane_edges(frame, self, 'TOP')
+        bases = self.plane_edges(frame, self.base_plane, 'BASE')
+        # Top and bottom centers belong to the same vertical axis only after
+        # projecting each at its own height. Never average their image pixels.
+        for top in tops:
+            matching = [b for b in bases if b['color'] == top['color'] and np.linalg.norm(b['offset'] - top['offset']) < 8]
+            if matching:
+                top['source'] = 'TOP+BASE'
+                top['score'] += 0.5 * max(b['score'] for b in matching)
+            self.axis_records.append(top)
+        for base in bases:
+            if all(np.linalg.norm(base['offset'] - old['offset']) >= 12 for old in self.axis_records):
+                self.axis_records.append(base)
+        self.axis_records.sort(key=lambda item: np.linalg.norm(item['offset']))
+        for item in self.axis_records:
+            label = item['color'] + ' ' + item['source']
+            self.detected_circles.append((label, (item['center'], item['rim'], item['offset'], item['score'])))
+        if not self.detected_circles:
+            return 'NO RELIABLE AXIS EDGE', None
+        return f'{len(self.detected_circles)} AXES (MARKER AT TOP HEIGHT)', self.detected_circles[0][1]
+
+
+class MultiSurfaceAxisVision(AxisVision):
+    def __init__(self, calibration, grid_mm, tray_height, part_height, diameter, base_diameter, roi=None):
+        super().__init__(calibration, grid_mm, tray_height, part_height, diameter, base_diameter, roi)
+        self.ground = AxisVision(calibration, grid_mm, 0, part_height, diameter, base_diameter, roi)
+
+    def detect(self, frame):
+        self.detected_circles = []
+        self.axis_records = []
+        if tuple(frame.shape[:2][::-1]) != self.calibration.image_size:
+            return 'SIZE MISMATCH', None
+        AxisVision.detect(self, frame)
+        tray = list(self.axis_records)
+        self.ground.detect(frame)
+        hypotheses = []
+        for surface, items in [('TRAY', tray), ('GROUND', self.ground.axis_records)]:
+            for item in items:
+                item = dict(item)
+                item['surface'] = surface
+                # Offsets use a common gripper reference at top height 140 mm,
+                # regardless of the surface supporting the material.
+                if surface == 'GROUND':
+                    item['offset'] = item['offset'] + self.ground.origin - self.origin
+                item['rank'] = item['score'] * (2 if item['source'] == 'TOP+BASE' else 1)
+                hypotheses.append(item)
+        hypotheses.sort(key=lambda item: item['rank'], reverse=True)
+        chosen = []
+        for item in hypotheses:
+            duplicate = next((old for old in chosen if old['color'] == item['color']
+                              and np.linalg.norm(old['center'] - item['center']) < 35), None)
+            if duplicate is None:
+                item['height_uncertain'] = item['source'] != 'TOP+BASE'
+                chosen.append(item)
+            elif item['surface'] != duplicate['surface'] and item['rank'] >= 0.80 * duplicate['rank']:
+                duplicate['height_uncertain'] = True
+        self.axis_records = sorted(chosen, key=lambda item: item['center'][0])
+        self.detected_circles = []
+        for item in self.axis_records:
+            height_label = 'HEIGHT?' if item['height_uncertain'] else item['surface']
+            label = item['color'] + ' ' + item['source'] + ' ' + height_label
+            self.detected_circles.append((label, (item['center'], item['rim'], item['offset'], item['score'])))
+        if not chosen:
+            return 'NO RELIABLE AXIS EDGE', None
+        return f'{len(chosen)} AXES - GROUND / TRAY', self.detected_circles[0][1]
+    def annotate(self, frame, status, result):
+        image = frame.copy()
+        x, y, w, h = self.roi
+        cv2.rectangle(image, (x, y), (x + w - 1, y + h - 1), (255, 185, 0), 2)
+        zero = tuple(np.rint(self.calibration.zero_pixel).astype(int))
+        cv2.drawMarker(image, zero, (70, 215, 255), cv2.MARKER_CROSS, 19, 2)
+        for thickness, ink in [(3, (0, 0, 0)), (1, (240, 245, 245))]:
+            cv2.putText(image, status, (10, 25), cv2.FONT_HERSHEY_SIMPLEX,
+                        0.57, ink, thickness, cv2.LINE_AA)
+        for index, (color, detection) in enumerate(self.detected_circles, 1):
+            center, rim, offset, _quality = detection
+            point = tuple(np.rint(center).astype(int))
+            cv2.polylines(image, [np.rint(rim).astype(np.int32)], True,
+                          (0, 255, 0), 2, cv2.LINE_AA)
+            cv2.drawMarker(image, point, (0, 255, 0), cv2.MARKER_CROSS, 18, 2)
+            cv2.circle(image, point, 4, (0, 255, 0), -1, cv2.LINE_AA)
+            label = f"{index} {color} CENTER ({point[0]}, {point[1]})"
+            position = (max(5, min(point[0] - 65, image.shape[1] - 290)), max(20, point[1] - 14))
+            cv2.putText(image, label, position, cv2.FONT_HERSHEY_SIMPLEX,
+                        0.43, (0, 0, 0), 3, cv2.LINE_AA)
+            cv2.putText(image, label, position, cv2.FONT_HERSHEY_SIMPLEX,
+                        0.43, (0, 255, 0), 1, cv2.LINE_AA)
+            if self.axis_records[index - 1].get('height_uncertain'):
+                detail = f'{index}: HEIGHT UNCERTAIN - PIXEL CENTER ONLY'
+            else:
+                detail = f'{index}: Fwd {offset[0]:+.1f} Left {offset[1]:+.1f} mm'
+            for thickness, ink in [(3, (0, 0, 0)), (1, (240, 245, 245))]:
+                cv2.putText(image, detail, (10, 25 + 23 * index),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.48, ink, thickness, cv2.LINE_AA)
+        return image
+
+def main():
+    cv2.setNumThreads(2)
+    parser = argparse.ArgumentParser(description=__doc__)
+    add_preview_arguments(parser)
+    parser.set_defaults(calibration=Path(__file__).resolve().with_name('ring_metric_Z184_image_center.json'), search_mm=40)
+    next(a for a in parser._actions if a.dest == 'calibration').required = False
+    parser.add_argument('--tray-height-mm', type=float, default=80)
+    parser.add_argument('--part-height-mm', type=float, default=60)
+    parser.add_argument('--roi', nargs=4, type=int)
+    args = parser.parse_args()
+    validate_preview_arguments(parser, args, max_search_mm=40)
+    if not (0 < args.tray_height_mm <= 150 and 0 < args.part_height_mm <= 120):
+        parser.error('Invalid material/tray height')
+    try:
+        vision = MultiSurfaceAxisVision(RingMetric.load(args.calibration), args.grid_mm, args.tray_height_mm,
+                            args.part_height_mm, args.diameter_mm, args.base_diameter_mm, args.roi)
+        if args.image:
+            from stacking_vision import read_image, write_image
+            frame = read_image(args.image)
+            status, _ = vision.detect(frame)
+            print(json.dumps({'status': status, 'axes': [dict(color=i['color'], source=i['source'],
+                  center_px=i['center'].tolist(), surface=i['surface'], height_uncertain=i['height_uncertain'],
+                  offset_mm=None if i['height_uncertain'] else i['offset'].tolist(), score=i['score']) for i in vision.axis_records]}))
+            if args.output:
+                write_image(args.output, vision.annotate(frame, status, None))
+        else:
+            run(args, vision, title='Axis edges - top/base geometry; Space: save raw, Q: quit', prefix='pickup_axis')
+    except (ValueError, OSError, cv2.error) as exc:
+        parser.exit(1, f'{exc}\n')
+
+
+if __name__ == '__main__':
+    main()

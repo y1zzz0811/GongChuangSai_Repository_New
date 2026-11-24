@@ -25,7 +25,7 @@ from target_center_camera1 import cross, text
 from numbered_ring_detector import NumberedRingDetector
 from ring_metric import RingMetric, image_center
 from route2_vision import RawTarget, RingLink
-from stacking_vision import DEFAULT_TOP_SEARCH_MM, MAX_SEARCH_MM, StackVision
+from stacking_vision import DEFAULT_TOP_SEARCH_MM, StackVision
 
 
 # 顺序与原来双摄预览一致：第一台 /dev/video0，第二台 /dev/video2。
@@ -153,17 +153,30 @@ def qr_result(frame, detector):
     return display, results
 
 
-def circle_result(frame, detector, history, metric=None, now=None):
+def circle_result(frame, detector, history, metric=None, now=None, requested_ring=None):
     height, width = frame.shape[:2]
     origin = np.array(image_center((width, height)))
     display = frame.copy()
-    rings = detector.detect(frame)
+    now = time.monotonic() if now is None else now
+    if requested_ring is None:
+        rings = detector.detect(frame)
+    else:
+        track = history.get(requested_ring)
+        hint = None
+        if (track and track.hits >= 3 and 0 <= now-track.seen_at <= RING_TRACK_MAX_AGE_S
+                and 0 <= now-track.read_at <= RING_TRACK_MAX_AGE_S):
+            hint = track.center, track.radius
+
+        def usable(ring):
+            return metric.offset(ring, frame.shape) is not None
+
+        rings = detector.detect(frame, target=requested_ring, hint=hint,
+                                usable=usable if metric is not None else None)
     counts = Counter(ring.number for ring in rings)
     found = {}
     confirmed_color = (255, 235, 80)
     pending_color = (0, 180, 255)
-    for ring, confirmed, inferred in track_ring_identities(
-            rings, history, time.monotonic() if now is None else now):
+    for ring, confirmed, inferred in track_ring_identities(rings, history, now):
         number = ring.number
         measured = np.array(ring.center)
         if number is None or (not inferred and counts[number] != 1):
@@ -222,17 +235,26 @@ class RecognitionCamera:
         self.error = None
         self.processed = 0
         self.uart_status = "串口已关闭"
-        self._vision_request_mode = None
+        self._vision_request = (None, None)
+        self._vision_status = ''
         self.thread = threading.Thread(target=self.run, daemon=True)
         self.thread.start()
 
-    def set_vision_request_mode(self, mode):
+    def set_vision_request_mode(self, mode, requested_ring=None):
         with self.lock:
-            self._vision_request_mode = mode
+            self._vision_request = (mode, requested_ring)
 
-    def vision_request_mode(self):
+    def vision_request(self):
         with self.lock:
-            return self._vision_request_mode
+            return self._vision_request
+
+    def set_vision_status(self, status):
+        with self.lock:
+            self._vision_status = status
+
+    def vision_status(self):
+        with self.lock:
+            return self._vision_status
 
     def run(self):
         port = None
@@ -295,7 +317,7 @@ class RecognitionCamera:
                     info = "；".join(values)[:300] if values else "尚未识别到二维码"
                     details = f"{self.uart_status}；{info}"
                 else:
-                    request_mode = self.vision_request_mode()
+                    request_mode, requested_ring = self.vision_request()
                     if request_mode in ("TOP", "RAW"):
                         # RingLink owns TOP/RAW work during a tagged request.
                         # Avoid running the unrelated numbered-ring detector
@@ -303,13 +325,16 @@ class RecognitionCamera:
                         display, circles = frame.copy(), {}
                         text(display, f"{request_mode} REQUEST ACTIVE", (10, 28),
                              (0, 255, 255), 0.55)
+                        text(display, self.vision_status(), (10, 52), (0, 255, 255), 0.42)
+                        cross(display, ((frame.shape[1]-1)/2, (frame.shape[0]-1)/2),
+                              (0, 255, 0), 18)
                     else:
                         display, circles = circle_result(frame, detector, ring_history, self.ring_metric,
-                                                         now=captured_at)
+                                                         now=captured_at, requested_ring=requested_ring)
                     h, w = frame.shape[:2]
                     details = f"图像中心 ({(w-1)/2:g}, {(h-1)/2:g})；"
                     if request_mode in ("TOP", "RAW"):
-                        details += f"{request_mode} 请求处理中"
+                        details += self.vision_status() or f"{request_mode} 请求处理中"
                     else:
                         details += "、".join(sorted(circles)) + " 号圆环已确认" if circles else "等待编号圆环确认"
                 elapsed = max(time.monotonic() - started, 0.001)
@@ -463,7 +488,7 @@ def main(argv=None):
     parser.add_argument("--ring-metric", type=Path, help="当前固定观察姿态的圆环毫米标定 JSON")
     parser.add_argument("--route2-vision", action="store_true", help="使用现有串口应答路线2视觉请求")
     parser.add_argument("--top-search-mm", type=float, default=None,
-                        help=f"TOP模式单轴搜索半宽，默认{DEFAULT_TOP_SEARCH_MM}，最大{MAX_SEARCH_MM} mm")
+                        help="兼容旧参数；统一入口TOP不再按此值筛选回传")
     parser.add_argument("--vision-debug", action="store_true", help="在终端输出定位请求、TOP检测状态和回包")
     parser.add_argument("--pickup-test", action="store_true",
                         help="单件抓取预设：启用串口视觉、图像中心顶面零点和定位日志")
@@ -479,10 +504,7 @@ def main(argv=None):
         parser.error("--route2-vision 需要启用串口并指定 --ring-metric")
     if args.raw_config and not args.route2_vision:
         parser.error("--raw-config 需要 --route2-vision")
-    top_search_mm = DEFAULT_TOP_SEARCH_MM if args.top_search_mm is None else args.top_search_mm
-    if args.top_search_mm is not None and (
-            not args.route2_vision or not 5 <= top_search_mm <= MAX_SEARCH_MM):
-        parser.error("--top-search-mm 需要 --route2-vision 或 --pickup-test，范围为5～100 mm")
+    top_search_mm = DEFAULT_TOP_SEARCH_MM  # Legacy StackVision map size only.
     cv2.setNumThreads(2)
     cameras = []
     root = None
@@ -493,7 +515,7 @@ def main(argv=None):
                if args.route2_vision else None)
         if top is not None:
             u, v = metric.zero_pixel
-            print(f"视觉联调：夹爪零点=图像中心 ({u:g}, {v:g})，TOP搜索半宽 {top_search_mm:g} mm", flush=True)
+            print(f"视觉联调：夹爪零点=图像中心 ({u:g}, {v:g})，统一TOP回传仅受协议每轴±500mm限制", flush=True)
         raw = RawTarget.load(metric, args.raw_config) if args.raw_config else None
         devices = CAMERA_DEVICES or usb_devices(command("v4l2-ctl", "--list-devices"))[:2]
         if len(devices) != 2 or len({Path(d).resolve() for d in devices}) != 2:

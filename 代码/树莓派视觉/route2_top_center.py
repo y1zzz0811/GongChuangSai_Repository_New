@@ -1,7 +1,7 @@
 """Route-2 unified QR/ring/TOP/RAW service using the new top-edge detector.
 
 Original programs are unchanged. One dual-camera worker owns the UART.
-RAW requires the measured --raw-config mandated by the controller protocol.
+RAW uses --raw-config; static_manual=true shares the independent static gate.
 """
 import argparse
 from pathlib import Path
@@ -11,33 +11,52 @@ import numpy as np
 import dual_camera_recognition as dual
 from route2_vision import RawTarget
 from raw_pickup_axis_vision import FixedSurfaceTopVision
+from top_center_uart import StaticRawGate
 
 
 class TopAdapter:
     def __init__(self, metric, grid_mm=10, height_mm=60, diameter_mm=30,
-                 search_mm=50, base_diameter_mm=50, base_height_mm=0,
+                 search_mm=None, base_diameter_mm=50, base_height_mm=0,
                  min_top_score=5, surface='ground'):
-        self.search_mm = search_mm
+        # Keep the old argument compatible; no distance gate below the
+        # wire protocol's +/-500mm limit is applied to a detected TOP.
         self.vision = FixedSurfaceTopVision(metric, grid_mm, 80, 60, diameter_mm,
                                            base_diameter_mm, surface=surface)
 
     def detect(self, frame):
         status, _ = self.vision.detect(frame)
         eligible = [item for item in self.vision.axis_records
-                    if np.all(np.abs(item['offset']) <= self.search_mm)]
+                    if np.isfinite(item['offset']).all() and np.all(np.abs(item['offset']) <= 500)]
         if len(eligible) != 1:
-            return f'TOP candidates={len(eligible)} within +/-{self.search_mm:g}mm', None
+            return f'TOP candidates={len(eligible)} (protocol +/-500mm)', None
         item = eligible[0]
         return 'TOP EDGE', (item['center'], item['rim'], item['offset'], item['score'])
 
 
 class EdgeRawTarget(RawTarget):
     def __init__(self, metric, settings):
-        super().__init__(metric, settings)
-        self.vision = TopAdapter(metric, search_mm=30, surface='tray')
+        self.static_manual = settings.get('static_manual', False)
+        if type(self.static_manual) is not bool:
+            raise ValueError('static_manual must be true or false')
+        self.static_test = self.static_manual
+        if self.static_test:
+            if settings.get('unlimited_stop') is not True:
+                raise ValueError('static_manual requires explicit unlimited_stop=true')
+            # Match the independent --raw-static-test path. Legacy Lab/window
+            # fields are not alignment gates for a measured coordinate reply.
+            self.unlimited_stop, self.dwell, self.action = True, float('inf'), 0.0
+            self.static_gate = StaticRawGate()
+        else:
+            super().__init__(metric, settings)
+        self.vision = TopAdapter(metric, search_mm=500 if self.static_test else 30, surface='tray')
+        self.status = 'RAW WAIT: fresh requested-color target'
 
     def observe(self, frame, stamp, target, tracker, moved_mm=(0.0, 0.0)):
         self.vision.vision.detect(frame)
+        if self.static_test:
+            item, self.status = self.static_gate.measure(
+                self.vision.vision.axis_records, frame, stamp, target, tracker)
+            return None if item is None else item['offset']
         matched = []
         for item in self.vision.vision.axis_records:
             if np.any(np.abs(item['offset']) > 30):
@@ -79,7 +98,7 @@ def main(argv=None):
         print(f'Unified route2 UART: TOP surface={settings.surface}; RAW surface=tray; '
               'normal VQ=ring; TOP=ring ID; RAW=color ID', flush=True)
         if '--raw-config' not in remaining:
-            print('RAW NOT CONFIGURED: provide measured --raw-config; no fabricated RAW replies will be sent', flush=True)
+            print('RAW NOT CONFIGURED: provide --raw-config; static_manual=true uses the single-item static gate', flush=True)
         if '--no-uart' not in remaining:
             if '--route2-vision' not in remaining and '--pickup-test' not in remaining:
                 remaining.append('--route2-vision')

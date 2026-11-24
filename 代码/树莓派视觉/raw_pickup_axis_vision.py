@@ -12,6 +12,9 @@ from stacking_vision import DIRECTIONS, PIXELS_PER_MM, add_preview_arguments, ru
 # Empirical ground forward correction: actual 10/20/30mm vs vision 15/25/40mm.
 # Zero-preserving least squares: sum(actual*vision)/sum(vision**2).
 GROUND_FWD_SCALE = 1850.0 / 2450.0
+# User-approved provisional tray correction (2026-11-24); remeasure on the
+# 140mm RAW plane. Kept separate from ground so they can be calibrated apart.
+RAW_FWD_SCALE = 1850.0 / 2450.0
 
 COLOR_IDS = {'RED': '1', 'YELLOW': '2', 'BLUE': '3', 'GREEN': '4', 'BLACK': '5', 'LIGHTBLUE': '6'}
 
@@ -305,6 +308,8 @@ class FixedSurfaceTopVision(MultiSurfaceAxisVision):
             if self.fixed_surface == 'GROUND':
                 # Modify the shared array so records, overlay and returned result agree.
                 item['offset'][0] *= GROUND_FWD_SCALE
+            elif self.fixed_surface == 'TRAY':
+                item['offset'][0] *= RAW_FWD_SCALE
         return status, result
 class ProtocolTopVision(MultiSurfaceAxisVision):
     """Use the request type to select its physical plane, never the color ID."""
@@ -341,8 +346,8 @@ def main():
     parser.add_argument('--roi', nargs=4, type=int)
     parser.add_argument('--surface', choices=['auto', 'ground', 'tray'], default='auto',
                         help='Select actual support plane for metric coordinates')
-    parser.add_argument('--top-search-mm', type=float, default=50,
-                        help='TOP serial target search half-width, 5..100 mm')
+    parser.add_argument('--top-search-mm', type=float, default=None,
+                        help='Legacy option, ignored; TOP replies use the +/-500mm protocol range')
     parser.add_argument('--raw-static-test', action='store_true',
                         help='Explicit static RAW bench mode: bypass motion/timing/taught window; no RAW config required')
     parser.add_argument('--raw-config', type=Path, help='Measured RAW pickup window, timing and six Lab ranges')
@@ -362,8 +367,6 @@ def main():
         if color in color_ids or target in color_ids.values():
             parser.error('Duplicate color or target ID')
         color_ids[color] = target
-    if not 5 <= args.top_search_mm <= 100:
-        parser.error('TOP search half-width must be 5..100 mm')
     if args.raw_static_test:
         args.uart = True
         if args.raw_config:

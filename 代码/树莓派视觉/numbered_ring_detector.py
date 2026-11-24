@@ -173,18 +173,63 @@ class NumberedRingDetector:
         other = float(np.delete(scores, best).max())
         return (best+1 if score >= 0.69 and score-other >= 0.075 else None), score
 
-    def detect(self, frame):
+    @staticmethod
+    def _working_gray(frame):
         height, width = frame.shape[:2]
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         scale = min(1.0, 480/max(height, width))
-        work = cv2.resize(gray, (round(width*scale), round(height*scale)),
-                          interpolation=cv2.INTER_AREA) if scale < 1 else gray
+        return (cv2.resize(gray, (round(width*scale), round(height*scale)),
+                           interpolation=cv2.INTER_AREA) if scale < 1 else gray)
+
+    @staticmethod
+    def _contrast(work):
+        background = cv2.GaussianBlur(work, (0, 0), 11)
+        contrast = np.clip(128+2*(work.astype(np.float32)-background), 0, 255).astype(np.uint8)
+        return cv2.GaussianBlur(contrast, (5, 5), 1)
+
+    def _fit(self, gray, contrast, seed, scale, origin=(0, 0)):
+        boundary = _inner_boundary(contrast, seed)
+        if boundary is None:
+            return None
+        ellipse, points = boundary
+        if not _has_outer_ring(contrast, ellipse):
+            return None
+        center, (a, b), _ = ellipse
+        number, score = self._read(_glyph(gray, ellipse))
+        center = (np.asarray(center)+origin+0.5)*scale-0.5
+        radius = 0.5*float(np.sqrt(a*b*scale[0]*scale[1]))
+        rim = (points+origin+0.5)*scale-0.5
+        return Ring(tuple(center), radius, number, score, rim)
+
+    def _fit_near(self, work, scale, hint, target):
+        center, radius = hint
+        x, y = (np.asarray(center)+0.5)/scale-0.5
+        r = radius/np.sqrt(scale[0]*scale[1])
+        # Keep the outer validation rings and enough background for the blur.
+        margin = int(np.ceil(2.1*r+30))
+        x0, y0 = max(0, int(x)-margin), max(0, int(y)-margin)
+        x1, y1 = min(work.shape[1], int(x)+margin+1), min(work.shape[0], int(y)+margin+1)
+        crop = work[y0:y1, x0:x1]
+        if min(crop.shape) < 70:
+            return None
+        ring = self._fit(crop, self._contrast(crop), (x-x0, y-y0, r), scale, (x0, y0))
+        if (ring is not None and ring.number == target and abs(ring.radius/radius-1) <= 0.15
+                and np.linalg.norm(np.asarray(ring.center)-center) < max(5, radius*0.20)):
+            return ring
+        return None
+
+    def detect(self, frame, *, target=None, hint=None, usable=None):
+        height, width = frame.shape[:2]
+        work = self._working_gray(frame)
         h, w = work.shape
         if min(h, w) < 70:
             return []
-        background = cv2.GaussianBlur(work, (0, 0), 11)
-        contrast = np.clip(128+2*(work.astype(np.float32)-background), 0, 255).astype(np.uint8)
-        contrast = cv2.GaussianBlur(contrast, (5, 5), 1)
+        scale = np.array([width/w, height/h])
+        if target is not None and hint is not None:
+            ring = self._fit_near(work, scale, hint, target)
+            if ring is not None and (usable is None or usable(ring)):
+                return [ring]
+        contrast = self._contrast(work)
         candidates = []
         seen_seeds = set()
         # A narrower radius search can recover the inner rim when the first
@@ -199,20 +244,21 @@ class NumberedRingDetector:
                 if key in seen_seeds:
                     continue
                 seen_seeds.add(key)
-                boundary = _inner_boundary(contrast, seed)
-                if boundary is None:
-                    continue
-                ellipse, points = boundary
-                if not _has_outer_ring(contrast, ellipse):
-                    continue
-                (x, y), (a, b), _ = ellipse
-                number, score = self._read(_glyph(work, ellipse))
-                center = ((x+0.5)*width/w-0.5, (y+0.5)*height/h-0.5)
-                radius = 0.5*float(np.sqrt(a*b*width/w*height/h))
-                rim = (points+0.5)*np.array([width/w, height/h])-0.5
-                candidates.append(Ring(center, radius, number, score, rim))
-            if {ring.number for ring in candidates} >= {1, 2, 3}:
-                break
+                ring = self._fit(work, contrast, seed, scale)
+                if ring is not None:
+                    candidates.append(ring)
+            rings = self._distinct(candidates)
+            if target is None:
+                if {ring.number for ring in candidates} >= {1, 2, 3}:
+                    return rings
+            else:
+                matches = [ring for ring in rings if ring.number == target]
+                if len(matches) == 1 and (usable is None or usable(matches[0])):
+                    return rings
+        return self._distinct(candidates)
+
+    @staticmethod
+    def _distinct(candidates):
         rings = []
         for ring in sorted(candidates, key=lambda item: (item.number is not None, item.score), reverse=True):
             x, y = ring.center

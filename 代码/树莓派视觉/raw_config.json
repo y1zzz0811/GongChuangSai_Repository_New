@@ -1,0 +1,5 @@
+{
+  "unlimited_stop": true,
+  "static_manual": true,
+  "_note": "Unified static RAW uses the same HSV top detector and requested-color gate as single-item --raw-static-test. Measured errors are returned for controller alignment; no Lab/pickup-window gate is applied."
+}

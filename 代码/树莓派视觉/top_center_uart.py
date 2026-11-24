@@ -80,11 +80,14 @@ class StaticRawGate:
     colors = {'RED': '1', 'YELLOW': '2', 'BLUE': '3', 'GREEN': '4', 'BLACK': '5', 'LIGHTBLUE': '6'}
 
     def measure(self, records, frame, stamp, target_id, tracker):
-        matches = [item for item in records if item.get('source') == 'TOP'
-                   and not item.get('height_uncertain', True)
-                   and self.colors.get(item.get('color')) == target_id
-                   and np.isfinite(item['offset']).all()
-                   and np.all(np.abs(item['offset']) <= 500)]
+        matches = []
+        for item in records:
+            if (item.get('source') != 'TOP' or item.get('height_uncertain', True)
+                    or self.colors.get(item.get('color')) != target_id):
+                continue
+            offset = np.asarray(item['offset'], dtype=float)
+            if offset.shape == (2,) and np.isfinite(offset).all() and np.all(np.abs(offset) <= 500):
+                matches.append(item)
         if len(matches) != 1:
             return None, f'RAW STATIC WAIT: {len(matches)} requested-color matches in ROI (protocol +/-500mm)'
 
@@ -94,7 +97,7 @@ class TopCenterLink:
     def __init__(self, port, color_ids=None, clock=time.monotonic, search_mm=50,
                  raw=None, mode_callback=None, log_path='/tmp/top_center_uart.log'):
         self.port, self.clock = port, clock
-        self.search_mm = float(search_mm)
+        # search_mm is accepted for compatibility, not used as a reply gate.
         self.raw, self.mode_callback = raw, mode_callback
         self.log_path = log_path
         self.buffer = bytearray()
@@ -194,11 +197,11 @@ class TopCenterLink:
         else:
             matches = [item for item in records if item.get('source') == 'TOP'
                        and not item.get('height_uncertain', True)
-                       and all(math.isfinite(float(v)) and abs(float(v)) <= min(500, self.search_mm)
+                       and all(math.isfinite(float(v)) and abs(float(v)) <= 500
                                for v in item['offset'])]
             if len(matches) != 1:
                 self.samples.clear()
-                self.report(f'TOP WAIT: {len(matches)} eligible targets, limit +/-{self.search_mm:g}mm')
+                self.report(f'TOP WAIT: {len(matches)} eligible targets (protocol +/-500mm)')
                 return
             item = matches[0]
         offset = tuple(float(v) for v in item['offset'])
